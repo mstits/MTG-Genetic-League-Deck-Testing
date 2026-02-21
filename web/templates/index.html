@@ -1,0 +1,732 @@
+<!-- 
+  index.html — MTG Genetic League Dashboard
+  
+  Main dashboard template with tabbed interface:
+    - Leaderboard : Ranked deck listings with ELO, division, win rate
+    - Top Cards   : Cards with highest win rates across all decks
+    - Meta        : Color distribution and archetype breakdown
+    - Deck Builder: Card search autocomplete + decklist testing
+    - Matches     : Recent match history with turn-by-turn details
+    - Matchups    : Head-to-head matchup matrix (heatmap)
+    - Stats       : League-wide statistics and trends
+    
+  Uses Tailwind CSS for styling, vanilla JS for tab switching and API calls.
+-->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MTG Genetic League</title>
+    <meta name="description" content="AI-powered Magic: The Gathering deck evolution and competitive simulation">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background: #0a0e1a;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+        .glass {
+            background: rgba(17, 24, 39, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(75, 85, 99, 0.4);
+        }
+
+        .glow-blue {
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.15);
+        }
+
+        .glow-purple {
+            box-shadow: 0 0 20px rgba(147, 51, 234, 0.15);
+        }
+
+        .glow-green {
+            box-shadow: 0 0 20px rgba(34, 197, 94, 0.15);
+        }
+
+        .tab-active {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: white;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+        }
+
+        .tab-inactive {
+            background: rgba(31, 41, 55, 0.5);
+            color: #9ca3af;
+        }
+
+        .tab-inactive:hover {
+            background: rgba(55, 65, 81, 0.5);
+            color: #d1d5db;
+        }
+
+        .header-gradient {
+            background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 50%, #1a0a2e 100%);
+            border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+        }
+
+        .pulse-dot {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .grade-S {
+            background: linear-gradient(135deg, #f59e0b, #ef4444);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .grade-A {
+            color: #22c55e;
+        }
+
+        .grade-B {
+            color: #3b82f6;
+        }
+
+        .grade-C {
+            color: #f59e0b;
+        }
+
+        .grade-D {
+            color: #ef4444;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .spinner {
+            border: 3px solid rgba(99, 102, 241, 0.2);
+            border-top-color: #6366f1;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 0.8s linear infinite;
+            display: inline-block;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen text-gray-200">
+
+    <!-- Header -->
+    <div class="header-gradient px-6 py-5">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+            <div>
+                <h1 class="text-3xl font-extrabold text-white tracking-tight">
+                    <span class="bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">MTG
+                        Genetic League</span>
+                </h1>
+                <p class="text-sm text-gray-400 mt-1">AI-Powered Deck Evolution & Competitive Simulation</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="pulse-dot w-2.5 h-2.5 bg-green-400 rounded-full"></div>
+                <span class="text-sm text-green-400 font-medium">Live</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="max-w-7xl mx-auto px-6 py-4">
+        <div id="stats-container"></div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="max-w-7xl mx-auto px-6">
+        <div class="flex gap-2 mb-4 flex-wrap" id="tab-bar">
+            <button onclick="switchTab('leaderboard')" id="tab-leaderboard"
+                class="tab-active px-5 py-2.5 rounded-lg text-sm font-semibold transition-all">
+                🏆 Leaderboard
+            </button>
+            <button onclick="switchTab('test-deck')" id="tab-test-deck"
+                class="tab-inactive px-5 py-2.5 rounded-lg text-sm font-semibold transition-all">
+                🧪 Test Your Deck
+            </button>
+            <button onclick="switchTab('matchups')" id="tab-matchups"
+                class="tab-inactive px-5 py-2.5 rounded-lg text-sm font-semibold transition-all">
+                🎯 Matchups
+            </button>
+            <button onclick="switchTab('card-stats')" id="tab-card-stats"
+                class="tab-inactive px-5 py-2.5 rounded-lg text-sm font-semibold transition-all">
+                📊 Card Stats
+            </button>
+            <button onclick="switchTab('meta')" id="tab-meta"
+                class="tab-inactive px-5 py-2.5 rounded-lg text-sm font-semibold transition-all">
+                🌐 Meta Analysis
+            </button>
+            <button onclick="switchTab('history')" id="tab-history"
+                class="tab-inactive px-5 py-2.5 rounded-lg text-sm font-semibold transition-all">
+                ⚔️ Match History
+            </button>
+        </div>
+    </div>
+
+    <!-- Content -->
+    <div class="max-w-7xl mx-auto px-6 pb-8">
+
+        <!-- Leaderboard -->
+        <div id="panel-leaderboard" class="glass rounded-2xl p-6 glow-blue">
+            <h2 class="text-xl font-bold text-white mb-1">🏆 Top Decks</h2>
+            <p class="text-sm text-gray-400 mb-4">Ranked by Elo rating across all divisions</p>
+            <div class="overflow-x-auto">
+                <table class="w-full" id="leaderboard-table">
+                    <thead>
+                        <tr class="text-gray-400 text-xs uppercase tracking-wider border-b border-gray-700">
+                            <th class="p-3 text-left w-12">#</th>
+                            <th class="p-3 text-left">Deck Name</th>
+                            <th class="p-3 text-left">Colors</th>
+                            <th class="p-3 text-left">Division</th>
+                            <th class="p-3 text-left">Elo</th>
+                            <th class="p-3 text-left">Record</th>
+                            <th class="p-3 text-left">Win%</th>
+                        </tr>
+                    </thead>
+                    <tbody id="leaderboard-body">
+                        <tr>
+                            <td colspan="7" class="p-6 text-center text-gray-500">Loading...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Test Your Deck -->
+        <div id="panel-test-deck" class="glass rounded-2xl p-6 glow-green hidden">
+            <h2 class="text-xl font-bold text-white mb-1">🧪 Test Your Deck</h2>
+            <p class="text-sm text-gray-400 mb-4">Build or paste your decklist, then test it against the top 10 league
+                decks in Bo3 matches</p>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Deck Builder -->
+                <div>
+                    <!-- Mode Toggle -->
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex gap-2">
+                            <button onclick="setBuilderMode('search')" id="mode-search"
+                                class="px-3 py-1.5 rounded-lg text-xs font-semibold tab-active transition-all">🔍 Card
+                                Search</button>
+                            <button onclick="setBuilderMode('paste')" id="mode-paste"
+                                class="px-3 py-1.5 rounded-lg text-xs font-semibold tab-inactive transition-all">📋
+                                Paste List</button>
+                        </div>
+                        <div id="deck-count" class="text-xs font-mono text-gray-500">0 cards</div>
+                    </div>
+
+                    <!-- Search Mode -->
+                    <div id="builder-search">
+                        <div class="relative mb-3">
+                            <input type="text" id="card-search-input"
+                                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+                                placeholder="Type a card name to search..." autocomplete="off">
+                            <div id="card-search-results"
+                                class="absolute z-50 w-full mt-1 bg-gray-800 border border-gray-700 rounded-xl shadow-2xl hidden max-h-72 overflow-y-auto">
+                            </div>
+                        </div>
+
+                        <!-- Color Identity -->
+                        <div id="deck-colors" class="flex gap-1.5 mb-3"></div>
+
+                        <!-- Deck List (interactive) -->
+                        <div id="deck-list-container"
+                            class="bg-gray-900 border border-gray-700 rounded-xl p-3 max-h-64 overflow-y-auto min-h-[200px]">
+                            <p class="text-gray-600 text-xs text-center py-8" id="deck-empty-msg">Search for cards above
+                                to start building</p>
+                            <div id="deck-list-cards"></div>
+                        </div>
+
+                        <!-- Mana Curve -->
+                        <div class="mt-3 bg-gray-900 border border-gray-700 rounded-xl p-3">
+                            <div class="text-xs text-gray-400 mb-2 font-medium">Mana Curve</div>
+                            <div id="mana-curve" class="flex items-end gap-1 h-16">
+                                <div class="flex-1 text-center">
+                                    <div class="bg-gray-700 rounded-t mx-auto" style="width:20px;height:2px"></div>
+                                    <div class="text-[10px] text-gray-600 mt-1">0</div>
+                                </div>
+                                <div class="flex-1 text-center">
+                                    <div class="bg-gray-700 rounded-t mx-auto" style="width:20px;height:2px"></div>
+                                    <div class="text-[10px] text-gray-600 mt-1">1</div>
+                                </div>
+                                <div class="flex-1 text-center">
+                                    <div class="bg-gray-700 rounded-t mx-auto" style="width:20px;height:2px"></div>
+                                    <div class="text-[10px] text-gray-600 mt-1">2</div>
+                                </div>
+                                <div class="flex-1 text-center">
+                                    <div class="bg-gray-700 rounded-t mx-auto" style="width:20px;height:2px"></div>
+                                    <div class="text-[10px] text-gray-600 mt-1">3</div>
+                                </div>
+                                <div class="flex-1 text-center">
+                                    <div class="bg-gray-700 rounded-t mx-auto" style="width:20px;height:2px"></div>
+                                    <div class="text-[10px] text-gray-600 mt-1">4</div>
+                                </div>
+                                <div class="flex-1 text-center">
+                                    <div class="bg-gray-700 rounded-t mx-auto" style="width:20px;height:2px"></div>
+                                    <div class="text-[10px] text-gray-600 mt-1">5</div>
+                                </div>
+                                <div class="flex-1 text-center">
+                                    <div class="bg-gray-700 rounded-t mx-auto" style="width:20px;height:2px"></div>
+                                    <div class="text-[10px] text-gray-600 mt-1">6+</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Paste Mode (hidden by default) -->
+                    <div id="builder-paste" class="hidden">
+                        <textarea id="deck-input" rows="16"
+                            class="w-full bg-gray-900 border border-gray-700 rounded-xl p-4 text-sm text-gray-200 font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none resize-none"
+                            placeholder="4 Lightning Bolt
+4 Goblin Guide
+4 Monastery Swiftspear
+4 Eidolon of the Great Revel
+4 Lava Spike
+4 Rift Bolt
+4 Searing Blaze
+4 Shock
+4 Skullcrack
+4 Grim Lavamancer
+20 Mountain"></textarea>
+                        <span class="text-xs text-gray-500 mt-1 block">Supports: Arena, MTGO, and plain text
+                            formats</span>
+                    </div>
+
+                    <!-- Submit -->
+                    <div class="flex justify-end mt-3">
+                        <button id="test-btn" onclick="testDeck()"
+                            class="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg font-semibold text-sm hover:from-indigo-500 hover:to-purple-500 transition-all shadow-lg hover:shadow-indigo-500/30">
+                            ⚡ Test Deck
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Results -->
+                <div id="test-results" class="hidden">
+                    <div id="test-results-content"></div>
+                </div>
+                <div id="test-placeholder" class="flex flex-col items-center justify-center text-gray-600">
+                    <div class="text-5xl mb-3">⚔️</div>
+                    <p class="text-sm">Build your deck and click Test to see results</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Matchups -->
+        <div id="panel-matchups" class="glass rounded-2xl p-6 glow-purple hidden">
+            <div id="matchups-body">
+                <p class="text-gray-500 text-center p-6">Loading matchup data...</p>
+            </div>
+        </div>
+
+        <!-- Card Stats -->
+        <div id="panel-card-stats" class="glass rounded-2xl p-6 glow-blue hidden">
+            <h2 class="text-xl font-bold text-white mb-1">📊 Top Performing Cards</h2>
+            <p class="text-sm text-gray-400 mb-4">Cards with the highest win rates across all matches</p>
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead>
+                        <tr class="text-gray-400 text-xs uppercase tracking-wider border-b border-gray-700">
+                            <th class="p-3 text-left w-12">#</th>
+                            <th class="p-3 text-left">Card Name</th>
+                            <th class="p-3 text-left">Win Rate</th>
+                            <th class="p-3 text-left">Record</th>
+                            <th class="p-3 text-left">Matches</th>
+                        </tr>
+                    </thead>
+                    <tbody id="card-stats-body">
+                        <tr>
+                            <td colspan="5" class="p-6 text-center text-gray-500">Loading...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Meta Analysis -->
+        <div id="panel-meta" class="glass rounded-2xl p-6 glow-purple hidden">
+            <h2 class="text-xl font-bold text-white mb-1">🌐 Meta Analysis</h2>
+            <p class="text-sm text-gray-400 mb-4">Color performance and league statistics</p>
+            <div id="meta-body">
+                <p class="text-gray-500 text-center p-6">Loading...</p>
+            </div>
+        </div>
+
+        <!-- Match History -->
+        <div id="panel-history" class="glass rounded-2xl p-6 glow-blue hidden">
+            <h2 class="text-xl font-bold text-white mb-1">⚔️ Recent Matches</h2>
+            <p class="text-sm text-gray-400 mb-4">Latest match results from the league</p>
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead>
+                        <tr class="text-gray-400 text-xs uppercase tracking-wider border-b border-gray-700">
+                            <th class="p-3 text-left">Matchup</th>
+                            <th class="p-3 text-left">Winner</th>
+                            <th class="p-3 text-left">Duration</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-body">
+                        <tr>
+                            <td colspan="3" class="p-6 text-center text-gray-500">Loading...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let currentTab = 'leaderboard';
+
+        function switchTab(tab) {
+            document.querySelectorAll('[id^="panel-"]').forEach(p => p.classList.add('hidden'));
+            document.querySelectorAll('[id^="tab-"]').forEach(t => {
+                if (t.id.startsWith('tab-')) {
+                    t.className = t.className.replace('tab-active', 'tab-inactive');
+                }
+            });
+            document.getElementById('panel-' + tab).classList.remove('hidden');
+            const tabBtn = document.getElementById('tab-' + tab);
+            if (tabBtn) tabBtn.className = tabBtn.className.replace('tab-inactive', 'tab-active');
+            currentTab = tab;
+            if (tab !== 'test-deck') loadData(tab);
+        }
+
+        function loadData(tab) {
+            const endpoints = {
+                'leaderboard': '/api/leaderboard',
+                'card-stats': '/api/top-cards',
+                'meta': '/api/meta',
+                'history': '/api/match-history',
+                'matchups': '/api/matchups'
+            };
+            const targets = {
+                'leaderboard': 'leaderboard-body',
+                'card-stats': 'card-stats-body',
+                'meta': 'meta-body',
+                'history': 'history-body',
+                'matchups': 'matchups-body'
+            };
+            if (!endpoints[tab]) return;
+            const target = document.getElementById(targets[tab]);
+            if (target) target.innerHTML = '<tr><td colspan="10" class="p-6 text-center text-gray-500"><div class="spinner mx-auto mb-2"></div>Loading...</td></tr>';
+            fetch(endpoints[tab])
+                .then(r => r.text())
+                .then(html => { if (target) target.innerHTML = html; })
+                .catch(e => { if (target) target.innerHTML = '<tr><td colspan="10" class="p-6 text-center text-gray-500">Failed to load data</td></tr>'; });
+        }
+
+        // ─── Deck Builder State ─────────────────────────────────────
+        const deckState = []; // [{name, count, mana_cost, type_line, colors, cmc}]
+        let searchTimeout = null;
+        let builderMode = 'search';
+
+        const COLOR_ICONS = { W: '⚪', U: '🔵', B: '⚫', R: '🔴', G: '🟢', C: '◆' };
+        const COLOR_BG = { W: 'bg-yellow-200/20 text-yellow-300', U: 'bg-blue-500/20 text-blue-300', B: 'bg-gray-600/20 text-gray-300', R: 'bg-red-500/20 text-red-300', G: 'bg-green-500/20 text-green-300' };
+
+        function setBuilderMode(mode) {
+            builderMode = mode;
+            document.getElementById('builder-search').classList.toggle('hidden', mode !== 'search');
+            document.getElementById('builder-paste').classList.toggle('hidden', mode !== 'paste');
+            document.getElementById('mode-search').className = 'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ' + (mode === 'search' ? 'tab-active' : 'tab-inactive');
+            document.getElementById('mode-paste').className = 'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ' + (mode === 'paste' ? 'tab-active' : 'tab-inactive');
+        }
+
+        // Card search with debounce
+        document.getElementById('card-search-input')?.addEventListener('input', function (e) {
+            clearTimeout(searchTimeout);
+            const q = e.target.value.trim();
+            if (q.length < 2) { hideSearchResults(); return; } searchTimeout = setTimeout(() => searchCards(q), 200);
+        });
+
+        // Close search results on click outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#card-search-input') && !e.target.closest('#card-search-results')) {
+                hideSearchResults();
+            }
+        });
+
+        async function searchCards(q) {
+            try {
+                const resp = await fetch(`/api/cards/search?q=${encodeURIComponent(q)}`);
+                const cards = await resp.json();
+                const container = document.getElementById('card-search-results');
+                if (!cards.length) { hideSearchResults(); return; }
+
+                container.innerHTML = cards.map(c => {
+                    const escaped = JSON.stringify(c).replace(/"/g, '&quot;');
+                    const typePart = (c.type_line || '').split('\u2014')[0].trim();
+                    return '<div class="px-4 py-2.5 hover:bg-gray-700/50 cursor-pointer flex justify-between items-center border-b border-gray-700/30 transition-colors" onclick="addCardToDeck(' + escaped + ')">' +
+                        '<div><span class="text-sm text-gray-200">' + c.name + '</span>' +
+                        '<span class="text-[10px] text-gray-500 ml-2">' + typePart + '</span></div>' +
+                        '<span class="text-xs text-gray-500 font-mono">' + formatManaCost(c.mana_cost) + '</span></div>';
+                }).join('');
+                container.classList.remove('hidden');
+            } catch (e) { console.error('Search error:', e); }
+        }
+
+        function hideSearchResults() {
+            document.getElementById('card-search-results').classList.add('hidden');
+        }
+
+        function formatManaCost(cost) {
+            if (!cost) return '';
+            return cost.replace(/\{([^}]+)\}/g, (_, m) => {
+                if ('WUBRGC'.includes(m)) return COLOR_ICONS[m] || m;
+                if (m.includes('/')) return m.split('/').map(c => COLOR_ICONS[c] || c).join('/');
+                return m;
+            });
+        }
+
+        function addCardToDeck(card) {
+            const existing = deckState.find(c => c.name === card.name);
+            if (existing) {
+                existing.count = Math.min(existing.count + 1, card.type_line?.includes('Basic Land') ? 99 : 4);
+            } else {
+                deckState.push({ ...card, count: 1 });
+            }
+            hideSearchResults();
+            document.getElementById('card-search-input').value = '';
+            document.getElementById('card-search-input').focus();
+            renderDeckList();
+        }
+
+        function removeCardFromDeck(name) {
+            const idx = deckState.findIndex(c => c.name === name);
+            if (idx !== -1) {
+                deckState[idx].count--;
+                if (deckState[idx].count <= 0) deckState.splice(idx, 1);
+            } renderDeckList();
+        } function renderDeckList() {
+            const
+                container = document.getElementById('deck-list-cards'); const
+                    emptyMsg = document.getElementById('deck-empty-msg'); const totalCards = deckState.reduce((s, c) => s + c.count,
+                        0);
+
+            document.getElementById('deck-count').innerHTML = `<span
+                class="${totalCards >= 60 ? 'text-green-400' : totalCards >= 40 ? 'text-yellow-400' : 'text-gray-500'}">${totalCards}</span>
+            cards`;
+
+            if (!deckState.length) {
+                emptyMsg.classList.remove('hidden');
+                container.innerHTML = '';
+                updateManaCurve();
+                updateColorIdentity();
+                return;
+            }
+            emptyMsg.classList.add('hidden');
+
+            // Sort: creatures, spells, lands
+            const sorted = [...deckState].sort((a, b) => {
+                const typeOrder = t => t.type_line?.includes('Land') ? 2 : t.type_line?.includes('Creature') ? 0 : 1;
+                return typeOrder(a) - typeOrder(b) || (a.cmc || 0) - (b.cmc || 0);
+            });
+
+            container.innerHTML = sorted.map(c => {
+                const safeName = c.name.replace(/'/g, "\\'");
+                const addData = JSON.stringify({ name: c.name, mana_cost: c.mana_cost || '', type_line: c.type_line || '', colors: c.colors || [], cmc: c.cmc || 0 }).replace(/"/g, '&quot;');
+                return '<div class="flex justify-between items-center py-1 px-1 hover:bg-gray-800/50 rounded group transition-colors">' +
+                    '<div class="flex items-center gap-2 min-w-0">' +
+                    '<span class="text-xs text-indigo-400 font-bold w-5 text-right">' + c.count + '×</span>' +
+                    '<span class="text-sm text-gray-300 truncate">' + c.name + '</span>' +
+                    '<span class="text-[10px] text-gray-600 hidden sm:inline">' + formatManaCost(c.mana_cost) + '</span></div>' +
+                    '<div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">' +
+                    '<button onclick="addCardToDeck(' + addData + ')" class="w-5 h-5 bg-green-800/50 text-green-400 rounded text-xs hover:bg-green-700/50 flex items-center justify-center">+</button>' +
+                    '<button onclick="removeCardFromDeck(\'' + safeName + '\')" class="w-5 h-5 bg-red-800/50 text-red-400 rounded text-xs hover:bg-red-700/50 flex items-center justify-center">−</button>' +
+                    '</div></div>';
+            }).join('');
+
+            updateManaCurve();
+            updateColorIdentity();
+        }
+
+        function updateManaCurve() {
+            const buckets = new Array(7).fill(0); // 0,1,2,3,4,5,6+
+            for (const c of deckState) {
+                if (c.type_line?.includes('Land')) continue;
+                const cmc = Math.min(Math.floor(c.cmc || 0), 6);
+                buckets[cmc] += c.count;
+            }
+            const max = Math.max(...buckets, 1);
+            const curveEl = document.getElementById('mana-curve');
+            const colors = ['#6b7280', '#6366f1', '#818cf8', '#a78bfa', '#c084fc', '#e879f9', '#f472b6'];
+            curveEl.innerHTML = buckets.map((n, i) => {
+                const h = Math.max(2, (n / max) * 56);
+                return `<div class="flex-1 text-center flex flex-col items-center justify-end">
+                ${n > 0 ? `<span class="text-[10px] text-gray-400 mb-0.5">${n}</span>` : ''}
+                <div class="rounded-t mx-auto transition-all duration-300"
+                    style="width:20px;height:${h}px;background:${colors[i]}"></div>
+                <div class="text-[10px] text-gray-600 mt-1">${i >= 6 ? '6+' : i}</div>
+            </div>`;
+            }).join('');
+        }
+
+        function updateColorIdentity() {
+            const colors = new Set();
+            for (const c of deckState) {
+                for (const col of (c.colors || [])) colors.add(col);
+            }
+            const el = document.getElementById('deck-colors');
+            if (!colors.size) { el.innerHTML = ''; return; }
+            el.innerHTML = [...colors].map(c =>
+                `<span
+                class="px-2 py-0.5 rounded-full text-xs font-medium ${COLOR_BG[c] || 'bg-gray-700 text-gray-400'}">${COLOR_ICONS[c] || c}
+                ${c}</span>`
+            ).join('');
+        }
+
+        function getDecklistString() {
+            if (builderMode === 'paste') {
+                return document.getElementById('deck-input').value.trim();
+            }
+            // Serialize from builder state
+            return deckState.map(c => `${c.count} ${c.name}`).join('\n');
+        }
+
+        async function testDeck() {
+            const input = getDecklistString();
+            if (!input) return;
+
+            const btn = document.getElementById('test-btn');
+            const results = document.getElementById('test-results');
+            const content = document.getElementById('test-results-content');
+            const placeholder = document.getElementById('test-placeholder');
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner mr-2"></span>Testing...';
+            placeholder.classList.add('hidden');
+            results.classList.remove('hidden');
+            content.innerHTML = `
+            <div class="flex flex-col items-center justify-center py-12 fade-in">
+                <div class="spinner mb-4" style="width:40px;height:40px;border-width:4px"></div>
+                <p class="text-gray-400 text-sm">Running Bo3 matches against top 10 league decks...</p>
+                <p class="text-gray-600 text-xs mt-2">This takes 10-30 seconds</p>
+            </div>`;
+
+            try {
+                const resp = await fetch('/api/test-deck', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ decklist: input })
+                });
+                const data = await resp.json();
+
+                if (data.error) {
+                    content.innerHTML = `
+            <div class="bg-red-900/30 border border-red-700 rounded-xl p-4 fade-in">
+                <p class="text-red-400 font-medium">❌ ${data.error}</p>
+                ${data.invalid_cards ? '<p class="text-red-500 text-sm mt-2">Unknown: ' + data.invalid_cards.join(', ')
+                            + '</p>' : ''}
+            </div>`;
+                    return;
+                }
+
+                const gradeColors = { S: 'grade-S', A: 'grade-A', B: 'grade-B', C: 'grade-C', D: 'grade-D' };
+                const gradeCls = gradeColors[data.grade] || 'text-gray-400';
+
+                let matchupsHtml = '';
+                for (const m of data.matchups) {
+                    const resCls = m.result === 'Win' ? 'text-green-400' : m.result === 'Loss' ? 'text-red-400' :
+                        'text-yellow-400';
+                    const resIcon = m.result === 'Win' ? '✅' : m.result === 'Loss' ? '❌' : '➖';
+                    matchupsHtml += `
+            <tr class="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
+                <td class="p-2 text-sm text-gray-300">${m.opponent}</td>
+                <td class="p-2 text-xs text-gray-500 font-mono">${m.opponent_elo}</td>
+                <td class="p-2 text-sm ${resCls} font-medium">${resIcon} ${m.result}</td>
+                <td class="p-2 text-xs font-mono text-gray-400">${m.games}</td>
+                <td class="p-2 text-xs text-gray-500">T${m.avg_turns}</td>
+            </tr>`;
+                }
+
+                content.innerHTML = `
+            <div class="fade-in">
+                <div class="grid grid-cols-3 gap-3 mb-4">
+                    <div class="bg-gray-800 rounded-xl p-3 text-center border border-gray-700">
+                        <div class="text-3xl font-black ${gradeCls}">${data.grade}</div>
+                        <div class="text-xs text-gray-400 mt-1">Grade</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-xl p-3 text-center border border-gray-700">
+                        <div class="text-2xl font-bold text-white">${data.win_rate}%</div>
+                        <div class="text-xs text-gray-400 mt-1">Win Rate</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-xl p-3 text-center border border-gray-700">
+                        <div class="text-lg font-bold text-gray-200">${data.record}</div>
+                        <div class="text-xs text-gray-400 mt-1">Record</div>
+                    </div>
+                </div>
+                ${data.invalid_cards.length ? '<p class="text-yellow-500 text-xs mb-3">⚠️ Unknown cards: ' +
+                        data.invalid_cards.join(', ') + '</p>' : ''}
+                <p class="text-xs text-gray-500 mb-2">${data.cards_valid} of ${data.cards_submitted} cards recognized
+                </p>
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-gray-400 text-xs uppercase border-b border-gray-700">
+                            <th class="p-2 text-left">Opponent</th>
+                            <th class="p-2 text-left">Elo</th>
+                            <th class="p-2 text-left">Result</th>
+                            <th class="p-2 text-left">Games</th>
+                            <th class="p-2 text-left">Turns</th>
+                        </tr>
+                    </thead>
+                    <tbody>${matchupsHtml}</tbody>
+                </table>
+            </div>`;
+            } catch (e) {
+                content.innerHTML = `<div class="bg-red-900/30 border border-red-700 rounded-xl p-4">
+                <p class="text-red-400">Error: ${e.message}</p>
+            </div>`;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '⚡ Test Deck';
+            }
+        }
+
+        // Initial load
+        loadData('leaderboard');
+        fetch('/api/stats').then(r => r.text()).then(h => {
+            document.getElementById('stats-container').innerHTML = h;
+        });
+
+        // Auto-refresh every 5 seconds (skip test-deck tab)
+        setInterval(() => {
+            if (currentTab !== 'test-deck') loadData(currentTab);
+            fetch('/api/stats').then(r => r.text()).then(h => {
+                document.getElementById('stats-container').innerHTML = h;
+            });
+        }, 5000);
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,93 @@
+<!-- match.html — Match detail page with turn-by-turn game log -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Match #{{ match.id }} - MTG Genetic League</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background: #0a0e1a;
+            font-family: 'Inter', system-ui, sans-serif;
+        }
+
+        .glass {
+            background: rgba(17, 24, 39, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(75, 85, 99, 0.4);
+        }
+    </style>
+</head>
+
+<body class="min-h-screen text-gray-200">
+    <div class="max-w-4xl mx-auto px-6 py-8">
+
+        <a href="/" class="text-indigo-400 hover:text-indigo-300 text-sm mb-4 inline-block">← Back to League</a>
+
+        <h1 class="text-2xl font-extrabold mb-2">
+            <span class="bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">
+                Match #{{ match.id }}
+            </span>
+        </h1>
+
+        <!-- Match Summary -->
+        <div class="glass rounded-2xl p-6 mb-6">
+            <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                <div class="text-center flex-1">
+                    <a href="/deck/{{ match.d1_id }}" class="text-blue-400 hover:underline text-lg font-semibold">{{
+                        match.deck1_name }}</a>
+                </div>
+                <div class="text-center">
+                    <span class="text-gray-500 text-2xl font-bold">vs</span>
+                </div>
+                <div class="text-center flex-1">
+                    <a href="/deck/{{ match.d2_id }}" class="text-blue-400 hover:underline text-lg font-semibold">{{
+                        match.deck2_name }}</a>
+                </div>
+            </div>
+
+            <div class="text-center mt-4 space-y-1">
+                <div class="text-lg font-bold 
+                    {% if match.winner_name %}text-green-400{% else %}text-yellow-400{% endif %}">
+                    {% if match.winner_name %}
+                    🏆 Winner: {{ match.winner_name }}
+                    {% else %}
+                    🤝 Draw
+                    {% endif %}
+                </div>
+                <div class="text-sm text-gray-500">
+                    {{ match.turns }} turns · {{ match.timestamp }}
+                </div>
+            </div>
+        </div>
+
+        <!-- Game Log -->
+        <div class="glass rounded-2xl p-6">
+            <h2 class="text-lg font-bold text-white mb-4">📜 Play-by-Play</h2>
+
+            {% if game_log %}
+            <div class="space-y-1 font-mono text-sm max-h-[600px] overflow-y-auto">
+                {% for event in game_log %}
+                <div class="px-3 py-1.5 rounded 
+                    {% if 'RESULT:' in event %}bg-green-900/40 text-green-300 font-bold text-base
+                    {% elif 'attacks with' in event %}bg-red-900/20 text-red-300
+                    {% elif 'deals' in event %}bg-orange-900/20 text-orange-300
+                    {% elif 'casts' in event %}bg-blue-900/20 text-blue-300
+                    {% elif 'Stall breaker' in event %}bg-yellow-900/20 text-yellow-300
+                    {% elif 'plays' in event %}bg-gray-800/50 text-gray-400
+                    {% else %}text-gray-400{% endif %}">
+                    {{ event }}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-gray-500 text-center py-8">No game log available for this match.</p>
+            {% endif %}
+        </div>
+
+    </div>
+</body>
+
+</html>

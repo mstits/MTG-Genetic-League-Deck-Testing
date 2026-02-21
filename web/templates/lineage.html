@@ -1,0 +1,76 @@
+<!-- lineage.html — Deck lineage tree showing parent-child evolution history -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ deck.name }} Lineage - MTG Genetic League</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'dark',
+            flowchart: { curve: 'basis' }
+        });
+    </script>
+    <style>
+        body {
+            background: #0a0e1a;
+            font-family: 'Inter', system-ui, sans-serif;
+        }
+
+        .glass {
+            background: rgba(17, 24, 39, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(75, 85, 99, 0.4);
+        }
+
+        .mermaid {
+            display: flex;
+            justify-content: center;
+        }
+
+        /* Custom Mermaid Styling override if possible, otherwise rely on theme: dark */
+    </style>
+</head>
+
+<body class="min-h-screen text-gray-200 p-6">
+    <div class="max-w-7xl mx-auto">
+        <div class="flex justify-between items-center mb-6">
+            <a href="/deck/{{ deck.id }}" class="text-indigo-400 hover:text-indigo-300 text-sm">← Back to Deck</a>
+            <h1 class="text-3xl font-extrabold text-white">
+                <span class="bg-clip-text text-transparent bg-gradient-to-r from-green-400 to-teal-400">Genetic
+                    Lineage</span>
+            </h1>
+            <div class="text-sm text-gray-400">
+                Ancestors & Descendants of <strong>{{ deck.name }}</strong>
+            </div>
+        </div>
+
+        <div class="glass rounded-xl p-8 overflow-x-auto min-h-[600px]">
+            <div class="mermaid">
+                graph TD
+                %% Styles
+                classDef current fill:#3730a3,stroke:#818cf8,stroke-width:4px,color:white;
+                classDef ancestor fill:#1f2937,stroke:#4b5563,color:#d1d5db;
+                classDef child fill:#064e3b,stroke:#34d399,color:#d1d5db;
+                classDef boss fill:#7f1d1d,stroke:#f87171,color:white;
+
+                %% Graph Definition
+                {{ graph_def | safe }}
+
+                %% Click events are handled by mermaid using interaction
+            </div>
+        </div>
+
+        <script>
+            // Add click listeners to mermaid nodes if needed
+            // Mermaid interaction: click NodeID callback "Tooltip"
+            // We generated "click NodeID href" in python
+        </script>
+    </div>
+</body>
+
+</html>

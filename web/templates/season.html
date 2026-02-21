@@ -1,0 +1,90 @@
+<!-- season.html — Season summary with final standings and evolution stats -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Season {{ season.id }} Recap - MTG Genetic League</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background: #0a0e1a;
+            font-family: 'Inter', system-ui, sans-serif;
+        }
+
+        .glass {
+            background: rgba(17, 24, 39, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(75, 85, 99, 0.4);
+        }
+    </style>
+</head>
+
+<body class="min-h-screen text-gray-200 p-6">
+    <div class="max-w-5xl mx-auto">
+        <a href="/" class="text-indigo-400 hover:text-indigo-300 text-sm mb-4 inline-block">← Back to Dashboard</a>
+
+        <h1 class="text-3xl font-extrabold text-white mb-2">
+            <span class="bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-400">Season {{ season.id
+                }} Recap</span>
+        </h1>
+        <p class="text-gray-400 mb-8">{{ season.match_count }} matches played</p>
+
+        <!-- Winner Spotlight -->
+        {% if season.winner %}
+        <div
+            class="glass rounded-2xl p-8 mb-8 text-center border-t-4 border-yellow-500 bg-gradient-to-b from-yellow-900/20 to-transparent">
+            <div class="text-yellow-500 font-bold tracking-widest uppercase text-sm mb-2">Season Champion</div>
+            <h2 class="text-4xl font-black text-white mb-4">{{ season.winner.name }}</h2>
+            <div class="flex justify-center gap-4 text-sm text-gray-300">
+                <span class="px-3 py-1 bg-gray-800 rounded-full border border-gray-700">{{ season.winner.colors
+                    }}</span>
+                <span class="px-3 py-1 bg-gray-800 rounded-full border border-gray-700">{{ season.winner.elo }}
+                    Elo</span>
+                <span class="px-3 py-1 bg-gray-800 rounded-full border border-gray-700">{{ season.winner.record
+                    }}</span>
+            </div>
+            <a href="/deck/{{ season.winner.id }}"
+                class="mt-6 inline-block px-6 py-2 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded-lg transition-colors">View
+                Champion Deck</a>
+        </div>
+        {% endif %}
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Promotions -->
+            <div class="glass rounded-2xl p-6 border-l-4 border-green-500">
+                <h3 class="text-xl font-bold text-green-400 mb-4">⬆️ Promotions</h3>
+                <ul class="space-y-3">
+                    {% for d in season.promotions %}
+                    <li class="flex justify-between items-center text-sm border-b border-gray-800 pb-2">
+                        <a href="/deck/{{ d.id }}" class="text-blue-400 hover:underline">{{ d.name }}</a>
+                        <span class="text-gray-500">{{ d.from_div }} → <span class="text-green-400">{{ d.to_div
+                                }}</span></span>
+                    </li>
+                    {% else %}
+                    <li class="text-gray-500 italic">No promotions this season.</li>
+                    {% endfor %}
+                </ul>
+            </div>
+
+            <!-- Relegations -->
+            <div class="glass rounded-2xl p-6 border-l-4 border-red-500">
+                <h3 class="text-xl font-bold text-red-400 mb-4">⬇️ Relegations</h3>
+                <ul class="space-y-3">
+                    {% for d in season.relegations %}
+                    <li class="flex justify-between items-center text-sm border-b border-gray-800 pb-2">
+                        <a href="/deck/{{ d.id }}" class="text-blue-400 hover:underline">{{ d.name }}</a>
+                        <span class="text-gray-500">{{ d.from_div }} → <span class="text-red-400">{{ d.to_div
+                                }}</span></span>
+                    </li>
+                    {% else %}
+                    <li class="text-gray-500 italic">No relegations this season.</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

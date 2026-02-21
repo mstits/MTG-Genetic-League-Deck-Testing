@@ -1,0 +1,257 @@
+<!-- deck.html — Individual deck detail page (card list, match history, ELO graph) -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ deck.name }} - MTG Genetic League</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background: #0a0e1a;
+            font-family: 'Inter', system-ui, sans-serif;
+        }
+
+        .glass {
+            background: rgba(17, 24, 39, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(75, 85, 99, 0.4);
+        }
+
+        .bar {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            border-radius: 4px;
+            min-width: 4px;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen text-gray-200">
+    <div class="max-w-6xl mx-auto px-6 py-8">
+
+        <a href="/" class="text-indigo-400 hover:text-indigo-300 text-sm mb-4 inline-block">← Back to League</a>
+
+        <h1 class="text-3xl font-extrabold mb-6">
+            <span class="bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">{{ deck.name
+                }}</span>
+        </h1>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+            <!-- Stats Panel -->
+            <div class="glass rounded-2xl p-6">
+                <h3 class="text-lg font-bold text-white mb-4">📊 Stats</h3>
+                <div class="space-y-4">
+                    <div>
+                        <div class="text-xs text-gray-400 uppercase tracking-wider">Division</div>
+                        <div class="text-xl font-bold 
+                            {% if deck.division == 'Mythic' %}text-purple-400
+                            {% elif deck.division == 'Gold' %}text-yellow-400
+                            {% elif deck.division == 'Silver' %}text-slate-300
+                            {% elif deck.division == 'Bronze' %}text-amber-500
+                            {% else %}text-gray-400{% endif %}">
+                            {{ deck.division }}
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-400 uppercase tracking-wider">Archetype</div>
+                        <div class="text-lg font-semibold text-white">{{ deck.archetype }}</div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-400 uppercase tracking-wider">Elo Rating</div>
+                        <div
+                            class="text-2xl font-bold {% if deck.elo >= 1200 %}text-green-400{% else %}text-red-400{% endif %}">
+                            {{ "%.0f"|format(deck.elo) }}
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-400 uppercase tracking-wider">Avg CMC</div>
+                        <div class="text-lg font-mono text-white">{{ deck.avg_cmc }}</div>
+                    </div>
+                    <div class="flex gap-4">
+                        <div>
+                            <div class="text-xs text-gray-400 uppercase">Wins</div>
+                            <div class="text-xl font-bold text-green-400">{{ deck.wins }}</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-gray-400 uppercase">Losses</div>
+                            <div class="text-xl font-bold text-red-400">{{ deck.losses }}</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-gray-400 uppercase">Draws</div>
+                            <div class="text-xl font-bold text-yellow-400">{{ deck.draws }}</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-gray-400 uppercase">Win%</div>
+                            <div class="text-xl font-bold text-white">
+                                {% if deck.wins + deck.losses > 0 %}
+                                {{ "%.0f"|format(deck.wins / (deck.wins + deck.losses) * 100) }}%
+                                {% else %}—{% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="text-xs text-gray-500 italic">Win% = Wins / (Wins+Losses) — draws excluded</div>
+                    <div>
+                        <div class="text-xs text-gray-400 uppercase tracking-wider">Colors</div>
+                        <div class="text-2xl mt-1">
+                            {% if not deck.colors %}
+                            <span class="text-gray-500">🔘 Colorless</span>
+                            {% else %}
+                            {% for c in deck.colors %}
+                            {% if c == 'W' %}⚪{% elif c == 'U' %}🔵{% elif c == 'B' %}⚫{% elif c == 'R' %}🔴{% elif c ==
+                            'G' %}🟢{% endif %}
+                            {% endfor %}
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-400 uppercase tracking-wider">Composition</div>
+                        <div class="text-sm text-gray-300 mt-1">
+                            {{ deck.creature_count }} creatures · {{ deck.spell_count - deck.creature_count }} spells ·
+                            {{ deck.cards|length }} unique
+                        </div>
+                    </div>
+
+                    <div class="pt-4 border-t border-gray-700/50">
+                        <a href="/deck/{{ deck.id }}/lineage"
+                            class="flex items-center justify-center gap-2 w-full px-4 py-2 bg-indigo-900/40 hover:bg-indigo-900/60 border border-indigo-700/50 rounded-lg text-indigo-200 font-bold transition-colors">
+                            <span>🧬</span> View Lineage Graph
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Decklist -->
+            <div class="glass rounded-2xl p-6 md:col-span-2">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-bold text-white">🃏 Decklist ({{ deck.cards.values()|sum }} cards)</h3>
+                    <div class="flex gap-2">
+                        <button onclick="exportDeck('arena')"
+                            class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg transition-colors"
+                            id="export-arena-btn">
+                            📋 Copy for Arena
+                        </button>
+                        <button onclick="exportDeck('mtgo')"
+                            class="text-xs bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded-lg transition-colors"
+                            id="export-mtgo-btn">
+                            📋 Copy for MTGO
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Mana Curve -->
+                <div class="mb-6">
+                    <div class="text-xs text-gray-400 uppercase tracking-wider mb-2">Mana Curve</div>
+                    <div class="flex items-end gap-2 h-20">
+                        {% set max_count = deck.curve.values()|max if deck.curve.values()|max > 0 else 1 %}
+                        {% for cmc, count in deck.curve.items() %}
+                        <div class="flex flex-col items-center flex-1">
+                            <div class="bar w-full" style="height: {{ (count / max_count * 60)|int }}px;"></div>
+                            <div class="text-xs text-gray-500 mt-1">{{ cmc }}{% if cmc == 6 %}+{% endif %}</div>
+                            <div class="text-xs text-gray-400">{{ count }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Cards Grid with Scryfall Links -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-1">
+                    {% for name, count in deck.cards.items()|sort(attribute='0') %}
+                    <div
+                        class="flex justify-between items-center px-3 py-1.5 rounded hover:bg-gray-700/30 text-sm group">
+                        <div class="flex items-center gap-2 min-w-0 flex-wrap">
+                            {% if card_info.get(name, {}).get('scryfall_uri') %}
+                            <a href="{{ card_info[name]['scryfall_uri'] }}" target="_blank" rel="noopener"
+                                class="text-blue-400 hover:text-blue-300 hover:underline truncate"
+                                title="{{ card_info[name].get('type_line', '') }}">
+                                {{ name }}
+                            </a>
+                            {% else %}
+                            <span class="text-gray-200 truncate">{{ name }}</span>
+                            {% endif %}
+                            {% if card_info.get(name, {}).get('has_etb') %}
+                            <span class="text-xs bg-purple-900/50 text-purple-300 px-1 rounded">ETB</span>
+                            {% endif %}
+                            {% for kw in card_info.get(name, {}).get('keywords', [])[:3] %}
+                            <span class="text-xs bg-gray-700/50 text-gray-400 px-1 rounded hidden group-hover:inline">{{
+                                kw }}</span>
+                            {% endfor %}
+                        </div>
+                        <span class="text-gray-500 ml-2 font-mono text-xs 
+                            {% if count >= 4 %}text-indigo-400 font-bold{% endif %}">
+                            ×{{ count }}
+                        </span>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <!-- Export Text (hidden, for copy) -->
+                <textarea id="decklist-text" class="hidden">{% for name, count in deck.cards.items()|sort(attribute='0') %}{{ count }} {{ name }}
+{% endfor %}</textarea>
+            </div>
+        </div>
+
+        <!-- Recent Matches -->
+        {% if matches %}
+        <div class="glass rounded-2xl p-6 mt-6">
+            <h3 class="text-lg font-bold text-white mb-4">⚔️ Recent Matches</h3>
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-gray-400 text-xs uppercase border-b border-gray-700">
+                        <th class="p-2 text-left">Matchup</th>
+                        <th class="p-2 text-left">Result</th>
+                        <th class="p-2 text-left">Turns</th>
+                        <th class="p-2 text-left">Log</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in matches %}
+                    <tr class="border-b border-gray-800 hover:bg-gray-700/30">
+                        <td class="p-2 text-gray-300">{{ m.deck1_name }} vs {{ m.deck2_name }}</td>
+                        <td class="p-2 font-medium 
+                            {% if m.winner_name == deck.name %}text-green-400
+                            {% elif m.winner_name %}text-red-400
+                            {% else %}text-yellow-400{% endif %}">
+                            {% if m.winner_name == deck.name %}Win
+                            {% elif m.winner_name %}Loss
+                            {% else %}Draw{% endif %}
+                        </td>
+                        <td class="p-2 text-gray-500">T{{ m.turns }}</td>
+                        <td class="p-2">
+                            {% if m.match_id %}
+                            <a href="/match/{{ m.match_id }}" class="text-indigo-400 hover:text-indigo-300 text-xs">📜
+                                View</a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        async function exportDeck(format) {
+            const btnId = format === 'arena' ? 'export-arena-btn' : 'export-mtgo-btn';
+            const btn = document.getElementById(btnId);
+            try {
+                const resp = await fetch('/api/export/{{ deck.id }}?format=' + format);
+                const data = await resp.json();
+                await navigator.clipboard.writeText(data.decklist);
+                btn.textContent = '✅ Copied!';
+                setTimeout(() => btn.textContent = format === 'arena' ? '📋 Copy for Arena' : '📋 Copy for MTGO', 2000);
+            } catch (e) {
+                // Fallback to hidden textarea
+                const text = document.getElementById('decklist-text').value.trim();
+                navigator.clipboard.writeText(text).then(() => {
+                    btn.textContent = '✅ Copied!';
+                    setTimeout(() => btn.textContent = format === 'arena' ? '📋 Copy for Arena' : '📋 Copy for MTGO', 2000);
+                });
+            }
+        }
+    </script>
+</body>
+
+</html>

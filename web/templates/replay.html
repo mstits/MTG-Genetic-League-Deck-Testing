@@ -1,0 +1,249 @@
+<!-- replay.html — Interactive game replay viewer with turn-by-turn navigation -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Match Replay - MTG Genetic League</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background: #0a0e1a;
+            font-family: 'Inter', system-ui, sans-serif;
+            overflow: hidden;
+        }
+
+        .glass {
+            background: rgba(17, 24, 39, 0.8);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(75, 85, 99, 0.4);
+        }
+
+        .card {
+            width: 100px;
+            height: 140px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            font-size: 0.7rem;
+            padding: 4px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            transition: all 0.2s;
+            cursor: default;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 12px rgba(0, 0, 0, 0.5);
+        }
+
+        .card.land {
+            background: #2f3e46;
+            border: 1px solid #52606d;
+            color: #a8b2bd;
+        }
+
+        .card.creature {
+            background: #3730a3;
+            border: 1px solid #6366f1;
+            color: white;
+        }
+
+        .card.token {
+            background: #064e3b;
+            border: 1px solid #10b981;
+            color: #a7f3d0;
+        }
+
+        .card.other {
+            background: #4b5563;
+            border: 1px solid #9ca3af;
+            color: #f3f4f6;
+        }
+
+        /* Tapped state simulation if we had it */
+        .tapped {
+            transform: rotate(90deg);
+        }
+
+        .zone {
+            min-height: 160px;
+            display: flex;
+            gap: 8px;
+            padding: 10px;
+            overflow-x: auto;
+            align-items: center;
+        }
+    </style>
+</head>
+
+<body class="text-gray-200 h-screen flex flex-col">
+    <!-- Header -->
+    <div class="h-14 border-b border-gray-800 flex items-center justify-between px-6 bg-gray-900/90 z-10">
+        <a href="/matches" class="text-gray-400 hover:text-white text-sm">← Exit Replay</a>
+        <div class="text-white font-bold" id="game-title">Game 1</div>
+        <div class="flex gap-2">
+            <button onclick="prevTurn()"
+                class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">Previous</button>
+            <span id="turn-display" class="w-20 text-center font-mono text-indigo-400">Turn 1</span>
+            <button onclick="nextTurn()"
+                class="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 rounded text-xs">Next</button>
+        </div>
+    </div>
+
+    <div class="flex-1 flex overflow-hidden">
+        <!-- Main Board -->
+        <div
+            class="flex-1 flex flex-col bg-[url('https://c1.scryfall.com/file/scryfall-cards/art_crop/front/3/9/39d51c5e-26cb-4276-a676-fabfef86620f.jpg?1562906281')] bg-cover bg-center">
+            <div class="flex-1 bg-gray-900/90 backdrop-blur-sm flex flex-col p-4 relative">
+
+                <!-- Opponent (Top) -->
+                <div class="flex flex-col border-b border-gray-700/50 pb-2">
+                    <div class="flex justify-between items-end px-4 mb-2">
+                        <div class="flex items-center gap-2">
+                            <div class="w-3 h-3 rounded-full bg-red-400"></div>
+                            <span class="font-bold text-red-200" id="p2-name">Opponent</span>
+                        </div>
+                        <div class="flex gap-4 text-sm font-mono">
+                            <span class="text-red-400">♥ <span id="p2-hp">20</span></span>
+                            <span class="text-blue-400">🎴 <span id="p2-cards">7</span></span>
+                            <span class="text-yellow-600">🏔️ <span id="p2-lands">0</span></span>
+                        </div>
+                    </div>
+                    <!-- Opponent Battlefield -->
+                    <div class="zone" id="p2-board">
+                        <!-- Cards go here -->
+                    </div>
+                </div>
+
+                <!-- Center Message / Phase -->
+                <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+                    <div id="phase-indicator" class="text-4xl font-black text-white/10 uppercase tracking-widest">
+                        combats</div>
+                </div>
+
+                <!-- Player (Bottom) -->
+                <div class="flex flex-col flex-1 justify-end pt-2">
+                    <!-- Player Battlefield -->
+                    <div class="zone" id="p1-board">
+                        <!-- Cards go here -->
+                    </div>
+
+                    <div class="flex justify-between items-start px-4 mt-2 pt-2 border-t border-gray-700/50">
+                        <div class="flex items-center gap-2">
+                            <div class="w-3 h-3 rounded-full bg-blue-400"></div>
+                            <span class="font-bold text-blue-200" id="p1-name">Me</span>
+                        </div>
+                        <div class="flex gap-4 text-sm font-mono">
+                            <span class="text-red-400">♥ <span id="p1-hp">20</span></span>
+                            <span class="text-blue-400">🎴 <span id="p1-cards">7</span></span>
+                            <span class="text-yellow-600">🏔️ <span id="p1-lands">0</span></span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Log Sidebar -->
+        <div class="w-80 bg-gray-900 border-l border-gray-800 flex flex-col">
+            <div class="p-3 border-b border-gray-800 font-bold text-gray-400 text-xs uppercase">Action Log</div>
+            <div id="log-container" class="flex-1 overflow-y-auto p-4 space-y-2 text-xs font-mono text-gray-400">
+                <!-- Log entries -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Data Injection -->
+    <script>
+        const matchData = {{ match_data | tojson }};
+        console.log("Loaded Match Data:", matchData);
+
+        let currentGameIdx = 0;
+        let currentTurnIdx = 0;
+
+        function getGame() { return matchData.games[currentGameIdx]; }
+        function getTurn() { return getGame().turns[currentTurnIdx]; }
+
+        function renderCard(name) {
+            let type = 'other';
+            if (['Island', 'Mountain', 'Swamp', 'Forest', 'Plains'].some(l => name.includes(l))) type = 'land';
+            if (name.includes('Token') || name.includes('Creature')) type = 'token';
+            // Simple heuristic for creature vs other based on name? Hard without metadata.
+            // Assume other for now unless Land.
+
+            return `<div class="card ${type}">
+                <div class="font-bold leading-tight">${name}</div>
+            </div>`;
+        }
+
+        function updateUI() {
+            const turn = getTurn();
+            if (!turn) return;
+
+            // Update Labels
+            document.getElementById('turn-display').innerText = `Turn ${turn.turn_num}`;
+            document.getElementById('p1-name').innerText = turn.p1.name;
+            document.getElementById('p2-name').innerText = turn.p2.name;
+
+            // Stats
+            document.getElementById('p1-hp').innerText = turn.p1.hp;
+            document.getElementById('p1-cards').innerText = turn.p1.cards;
+            document.getElementById('p1-lands').innerText = turn.p1.lands;
+
+            document.getElementById('p2-hp').innerText = turn.p2.hp;
+            document.getElementById('p2-cards').innerText = turn.p2.cards;
+            document.getElementById('p2-lands').innerText = turn.p2.lands;
+
+            // Boards
+            const p1BoardEl = document.getElementById('p1-board');
+            p1BoardEl.innerHTML = turn.p1.board.map(renderCard).join('');
+
+            const p2BoardEl = document.getElementById('p2-board');
+            p2BoardEl.innerHTML = turn.p2.board.map(renderCard).join('');
+
+            // Log - Highlight current actions
+            const logEl = document.getElementById('log-container');
+            logEl.innerHTML = '';
+
+            // Show logs up to current turn
+            // Implementation detail: Should we show ALL logs or just current turn?
+            // Let's show current turn's actions.
+            turn.actions.forEach(line => {
+                const div = document.createElement('div');
+                div.className = "p-2 rounded bg-gray-800/50 border-l-2 border-indigo-500";
+                div.innerText = line;
+                logEl.appendChild(div);
+            });
+        }
+
+        function nextTurn() {
+            const game = getGame();
+            if (currentTurnIdx < game.turns.length - 1) {
+                currentTurnIdx++;
+                updateUI();
+            }
+        }
+
+        function prevTurn() {
+            if (currentTurnIdx > 0) {
+                currentTurnIdx--;
+                updateUI();
+            }
+        }
+
+        // Initial Render
+        updateUI();
+
+        // Keyboard Support
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight') nextTurn();
+            if (e.key === 'ArrowLeft') prevTurn();
+        });
+    </script>
+</body>
+
+</html>

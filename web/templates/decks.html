@@ -1,0 +1,130 @@
+<!-- decks.html — All decks listing page with search, filter, and sorting -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deck Browser - MTG Genetic League</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background: #0a0e1a;
+            font-family: 'Inter', system-ui, sans-serif;
+        }
+
+        .glass {
+            background: rgba(17, 24, 39, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(75, 85, 99, 0.4);
+        }
+    </style>
+</head>
+
+<body class="min-h-screen text-gray-200 p-6">
+    <div class="max-w-7xl mx-auto">
+        <a href="/" class="text-indigo-400 hover:text-indigo-300 text-sm mb-4 inline-block">← Back to Dashboard</a>
+
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-extrabold text-white">
+                <span class="bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">Deck
+                    Browser</span>
+            </h1>
+            <div class="text-sm text-gray-400">
+                Found {{ count }} decks
+            </div>
+        </div>
+
+        <!-- Filter Summary -->
+        <div class="mb-6 flex gap-2 flex-wrap">
+            {% if filters.active %}
+            <span class="px-3 py-1 rounded-full bg-green-900/30 text-green-400 text-xs border border-green-700">Active
+                Only</span>
+            {% endif %}
+            {% if filters.boss %}
+            <span class="px-3 py-1 rounded-full bg-red-900/30 text-red-400 text-xs border border-red-700">Boss
+                Decks</span>
+            {% endif %}
+            {% if filters.colors %}
+            <span class="px-3 py-1 rounded-full bg-blue-900/30 text-blue-400 text-xs border border-blue-700">Colors: {{
+                filters.colors }}</span>
+            {% endif %}
+            <a href="/decks"
+                class="px-3 py-1 rounded-full bg-gray-800 text-gray-400 text-xs border border-gray-700 hover:bg-gray-700">Clear
+                Filters</a>
+        </div>
+
+        <div class="glass rounded-2xl p-6">
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-gray-400 text-xs uppercase border-b border-gray-700">
+                            <th class="p-3 text-left">Name</th>
+                            <th class="p-3 text-left">Colors</th>
+                            <th class="p-3 text-left">Division</th>
+                            <th class="p-3 text-left">Elo</th>
+                            <th class="p-3 text-left">Record</th>
+                            <th class="p-3 text-left">Win%</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if not decks %}
+                        <tr>
+                            <td colspan="6" class="p-6 text-center text-gray-500">No decks found matching filters.</td>
+                        </tr>
+                        {% endif %}
+                        {% for d in decks %}
+                        <tr class="border-b border-gray-800 hover:bg-gray-700/30 cursor-pointer transition-colors"
+                            onclick="window.location.href='/deck/{{ d.id }}'">
+                            <td class="p-3 font-medium text-blue-400">{{ d.name }}</td>
+                            <td class="p-3">
+                                {% if not d.colors %}
+                                <span class="text-gray-500">🔘</span>
+                                {% else %}
+                                {% for c in d.colors %}
+                                {% if c == 'W' %}⚪{% elif c == 'U' %}🔵{% elif c == 'B' %}⚫{% elif c == 'R' %}🔴{% elif
+                                c == 'G' %}🟢{% endif %}
+                                {% endfor %}
+                                {% endif %}
+                            </td>
+                            <td class="p-3">
+                                <span class="px-2 py-1 rounded-full text-xs 
+                                    {% if d.division == 'Mythic' %}bg-purple-900/50 text-purple-300 border border-purple-700
+                                    {% elif d.division == 'Gold' %}bg-yellow-900/50 text-yellow-300 border border-yellow-700
+                                    {% elif d.division == 'Silver' %}bg-gray-700 text-gray-300 border border-gray-600
+                                    {% elif d.division == 'Bronze' %}bg-orange-900/50 text-orange-300 border border-orange-700
+                                    {% else %}bg-gray-800 text-gray-500{% endif %}">
+                                    {{ d.division }}
+                                </span>
+                            </td>
+                            <td class="p-3 font-mono text-white">{{ "%.0f"|format(d.elo) }}</td>
+                            <td class="p-3 text-gray-400">{{ d.wins }}W - {{ d.losses }}L</td>
+                            <td class="p-3 font-mono text-gray-300">
+                                {% if d.wins + d.losses > 0 %}
+                                {{ "%.0f"|format(d.wins / (d.wins + d.losses) * 100) }}%
+                                {% else %}—{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Simple Pagination -->
+            {% if next_page or prev_page %}
+            <div class="mt-6 flex justify-center gap-4">
+                {% if prev_page %}
+                <a href="{{ request.url.include_query_params(page=prev_page) }}"
+                    class="px-4 py-2 bg-gray-800 rounded hover:bg-gray-700">Reference</a>
+                {% endif %}
+                {% if next_page %}
+                <a href="{{ request.url.include_query_params(page=next_page) }}"
+                    class="px-4 py-2 bg-indigo-600 rounded hover:bg-indigo-500">Next Page →</a>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+
+</html>

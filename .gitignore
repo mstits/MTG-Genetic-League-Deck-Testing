@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs (game logs can be millions of files)
+logs/
+*.log
+
+# Data — large files (users generate via scripts/fetch_cards.py)
+data/oracle_cards_raw.json
+data/processed_cards.json
+data/legal_cards.json
+
+# Database backups and runtime DB (users copy seed_league.db → league.db)
+data/*.bak
+data/league.db
+
+# Copyrighted material (not included in repo)
+MagicCompRules*.pdf
+Magic-\ The\ Gathering\ Comprehensive\ Rules*.txt
+Magic-*Comprehensive*
+
+# Artifacts
+.gemini/
