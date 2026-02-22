@@ -14,16 +14,13 @@ as fixed benchmarks.
 
 import json
 import random
-import time
-import re
 import os
+import logging
 from datetime import datetime
-from typing import List, Tuple
 from data.db import get_db_connection, save_deck, update_card_stats
 from engine.game import Game
 from engine.player import Player
 from engine.deck import Deck
-from engine.card import Card
 from engine.card_builder import dict_to_card, inject_basic_lands
 from simulation.runner import SimulationRunner
 from simulation.parallel import run_matches_parallel
@@ -34,18 +31,8 @@ from league.gauntlet import Gauntlet
 # Available color combos for deck construction
 COLOR_COMBOS = ["R", "B", "G", "W", "U", "RB", "RG", "BG", "WU", "WB", "RW", "UB", "UG", "UR", "WG"]
 
-def classify_archetype(card_list: dict) -> str:
-    """Classify a deck as Aggro, Midrange, or Control based on average CMC."""
-    total_cmc = 0
-    total_spells = 0
-    for name, count in card_list.items():
-        if name in ('Plains', 'Island', 'Swamp', 'Mountain', 'Forest'):
-            continue
-        # We don't have cost here, so estimate from name patterns
-        total_spells += count
-    
-    # Fallback classification based on creature ratio
-    return "Midrange"  # Will be updated with real CMC data
+logger = logging.getLogger(__name__)
+
 
 
 class LeagueManager:
@@ -502,8 +489,8 @@ class LeagueManager:
                                 log_path = self._save_match_log(boss_logs)
                                 self.update_match_result(cand['id'], boss['id'], w_id, result.turns,
                                                          game_log=result.game_log, log_path=log_path)
-                            except:
-                                pass
+                            except Exception as e:
+                                logger.warning("Game error during promotion: %s", e)
                         
                         if wins >= 2:
                             print(f"    ✅ {cand['name']} beat {boss['name']} ({wins}/3)!")

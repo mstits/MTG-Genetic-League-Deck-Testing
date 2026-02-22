@@ -17,7 +17,6 @@ Decision priority (in get_action):
 """
 
 from .base_agent import BaseAgent
-import random
 
 
 class HeuristicAgent(BaseAgent):

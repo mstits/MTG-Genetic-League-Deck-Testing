@@ -22,10 +22,39 @@ import uvicorn
 import os
 import json
 import re
+import html as html_mod  # For escaping DB values in HTML responses
 from data.db import get_db_connection, get_top_cards
 from starlette.responses import JSONResponse
 
 app = FastAPI(title="MTG Genetic League", description="AI-powered deck evolution dashboard")
+
+# CORS — allow dashboard to be accessed from any origin (restrict for production)
+from starlette.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Restrict to specific domains in production
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+
+# Simple in-memory rate limiter for CPU-intensive endpoints
+import time as _time
+from collections import defaultdict
+_rate_limit_store: dict = defaultdict(list)  # IP -> list of timestamps
+_RATE_LIMIT_MAX = 3     # Max requests
+_RATE_LIMIT_WINDOW = 60  # Per 60 seconds
+
+def _check_rate_limit(client_ip: str) -> bool:
+    """Returns True if the request should be allowed, False if rate-limited."""
+    now = _time.time()
+    # Clean old entries
+    _rate_limit_store[client_ip] = [
+        t for t in _rate_limit_store[client_ip] if now - t < _RATE_LIMIT_WINDOW
+    ]
+    if len(_rate_limit_store[client_ip]) >= _RATE_LIMIT_MAX:
+        return False
+    _rate_limit_store[client_ip].append(now)
+    return True
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
@@ -34,12 +63,8 @@ if not os.path.exists(TEMPLATES_DIR):
 
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
-def parse_cmc(cost):
-    if not cost: return 0
-    total = 0
-    for g in re.findall(r'\{(\d+)\}', cost): total += int(g)
-    total += len(re.findall(r'\{([WUBRGC])\}', cost))
-    return total
+# Import canonical parse_cmc from optimizer (handles hybrid mana)
+from optimizer.genetic import parse_cmc
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
@@ -92,12 +117,14 @@ async def get_leaderboard(request: Request):
         else:
             row_cls = "border-b border-gray-700 hover:bg-gray-700/50 cursor-pointer transition-colors"
         
+        safe_name = html_mod.escape(d['name'])
+        safe_div = html_mod.escape(d['division'])
         html += f"""
         <tr class="{row_cls}" onclick="window.location.href='/deck/{d['id']}'">
             <td class="p-3 text-gray-500">{i+1}</td>
-            <td class="p-3 {name_cls}">{arch} {d['name']}</td>
+            <td class="p-3 {name_cls}">{arch} {safe_name}</td>
             <td class="p-3">{color_badges}</td>
-            <td class="p-3"><span class="px-2 py-1 rounded-full text-xs {div_cls}">{d['division']}</span></td>
+            <td class="p-3"><span class="px-2 py-1 rounded-full text-xs {div_cls}">{safe_div}</span></td>
             <td class="p-3 font-mono font-bold text-white">{d['elo']:.0f}</td>
             <td class="p-3 text-sm text-gray-300">{d['wins']}W-{d['losses']}L<span class="text-gray-500">-{draws}D</span></td>
             <td class="p-3 font-mono text-sm text-gray-300">{wr}</td>
@@ -126,7 +153,7 @@ async def get_top_cards_api(request: Request):
             <td class="p-3 text-gray-500">{i+1}</td>
             <td class="p-3 font-medium text-gray-200">
                 <a href="https://scryfall.com/search?q=%21%22{encoded_name}%22" target="_blank" class="hover:text-blue-400 hover:underline">
-                    {c['card_name']}
+                    {html_mod.escape(c['card_name'])}
                 </a>
             </td>
             <td class="p-3 font-mono {wr_cls}">{wr}%</td>
@@ -273,15 +300,18 @@ async def get_match_history(request: Request):
     for m in matches:
         winner = m['winner_name'] or 'Draw'
         w_cls = "text-yellow-400" if winner == "Draw" else "text-green-400"
+        safe_d1 = html_mod.escape(m['deck1_name'])
+        safe_d2 = html_mod.escape(m['deck2_name'])
+        safe_winner = html_mod.escape(winner)
         
         html += f"""
         <tr class="border-b border-gray-700 hover:bg-gray-700/50 transition-colors cursor-pointer" onclick="window.location.href='/match/{m['id']}'">
             <td class="p-3">
-                <a href="/deck/{m['d1_id']}" class="text-blue-400 hover:underline">{m['deck1_name']}</a>
+                <a href="/deck/{m['d1_id']}" class="text-blue-400 hover:underline">{safe_d1}</a>
                 <span class="text-gray-500 mx-1">vs</span>
-                <a href="/deck/{m['d2_id']}" class="text-blue-400 hover:underline">{m['deck2_name']}</a>
+                <a href="/deck/{m['d2_id']}" class="text-blue-400 hover:underline">{safe_d2}</a>
             </td>
-            <td class="p-3 font-medium {w_cls}">{winner}</td>
+            <td class="p-3 font-medium {w_cls}">{safe_winner}</td>
             <td class="p-3 text-sm text-gray-500">T{m['turns']}</td>
         </tr>
         """
@@ -462,9 +492,13 @@ async def view_match(request: Request, match_id: int):
     # Prefer full log from file, fall back to DB summary
     game_log = []
     log_path = match.get('log_path', '')
-    if log_path and os.path.exists(log_path):
-        with open(log_path, 'r') as f:
-            game_log = f.read().splitlines()
+    # Security: validate log_path is within the expected logs directory
+    allowed_logs_dir = os.path.abspath(os.path.join(os.path.dirname(BASE_DIR), 'logs'))
+    if log_path:
+        abs_log_path = os.path.abspath(log_path)
+        if abs_log_path.startswith(allowed_logs_dir) and os.path.exists(abs_log_path):
+            with open(abs_log_path, 'r') as f:
+                game_log = f.read().splitlines()
     
     if not game_log:
         game_log = json.loads(match.get('game_log', '[]') or '[]')
@@ -476,7 +510,6 @@ async def view_match(request: Request, match_id: int):
 
 # ─── User Deck Test: Paste a decklist, test vs top league decks ───────────
 
-from fastapi import Form
 from fastapi.responses import JSONResponse
 
 # Card search cache (loaded once on first request)
@@ -571,12 +604,19 @@ def _parse_decklist(raw: str) -> dict:
 @app.post("/api/test-deck")
 async def test_deck(request: Request):
     """Test a user-submitted decklist against top league decks. Returns win rate + matchup breakdown."""
+    # Rate limit: CPU-intensive endpoint, max 3 requests/minute per IP
+    client_ip = request.client.host if request.client else "unknown"
+    if not _check_rate_limit(client_ip):
+        return JSONResponse(
+            {"error": "Rate limit exceeded. Please wait 60 seconds before testing again."},
+            status_code=429
+        )
     import traceback
     try:
         try:
             body = await request.json()
             raw_decklist = body.get('decklist', '')
-        except:
+        except (ValueError, TypeError):
             form = await request.form()
             raw_decklist = form.get('decklist', '')
         

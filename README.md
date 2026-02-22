@@ -17,35 +17,35 @@ A genetic algorithm that evolves Magic: The Gathering decks through simulated co
 
 ## 🏗️ Architecture
 
-```
-┌─────────────────────────────────────────────────────┐
-│                    Web Dashboard                     │
-│          FastAPI + Jinja2 + Tailwind CSS             │
-│   Leaderboard │ Deck Builder │ Stats │ Match History │
-└───────────────────────┬─────────────────────────────┘
-                        │
-        ┌───────────────┼───────────────┐
-        ▼               ▼               ▼
-  ┌───────────┐  ┌────────────┐  ┌────────────┐
-  │  League    │  │ Simulation │  │   Data     │
-  │  Manager   │  │  Runner    │  │  (SQLite)  │
-  │  ELO+Breed │  │  Parallel  │  │  Decks,ELO │
-  └─────┬─────┘  └──────┬─────┘  └────────────┘
-        │               │
-        ▼               ▼
-  ┌───────────────────────────────┐
-  │        Game Engine            │
-  │  Phases │ Stack │ Priority    │
-  │  Combat │ SBAs  │ Zones      │
-  └─────────────┬─────────────────┘
-                │
-        ┌───────┼───────┐
-        ▼               ▼
-  ┌───────────┐  ┌───────────┐
-  │ Heuristic │  │   Card    │
-  │   Agent   │  │  Builder  │
-  │ (AI Play) │  │  (Oracle) │
-  └───────────┘  └───────────┘
+```mermaid
+graph TD
+    subgraph Web["🌐 Web Dashboard"]
+        direction LR
+        WA["FastAPI + Jinja2 + Tailwind CSS"]
+        LB["Leaderboard"] ~~~ DB2["Deck Builder"] ~~~ ST["Stats"] ~~~ MH["Match History"]
+    end
+
+    subgraph Core["⚙️ Core Systems"]
+        direction LR
+        LM["League Manager<br/>ELO + Breeding"]
+        SR["Simulation Runner<br/>Parallel Bo3"]
+        DATA["Data Layer<br/>SQLite"]
+    end
+
+    subgraph Engine["🎮 Game Engine"]
+        direction LR
+        PH["Phases & Stack"] ~~~ CB["Combat & SBAs"] ~~~ ZN["Zones & Priority"]
+    end
+
+    subgraph Foundation["🧱 Foundation"]
+        direction LR
+        HA["Heuristic Agent<br/>AI Play"]
+        CARD["Card Builder<br/>Oracle Parser"]
+    end
+
+    Web --> Core
+    Core --> Engine
+    Engine --> Foundation
 ```
 
 ## 🚀 Quick Start

@@ -6,7 +6,7 @@ all 25 color combinations and uses the HeuristicAgent.
 """
 
 import random
-from typing import List, Tuple
+from typing import List
 from engine.deck import Deck
 from engine.card import Card
 from engine.game import Game
@@ -14,8 +14,6 @@ from engine.player import Player
 from simulation.runner import SimulationRunner
 from agents.goldfish import GoldfishAgent
 import json
-import os
-import multiprocessing
 
 class GeneticOptimizer:
     def __init__(self, card_pool: List[dict], population_size=20, generations=10):
@@ -52,12 +50,12 @@ class GeneticOptimizer:
         if 'power' in data:
             try:
                 power = int(data['power'])
-            except:
+            except (ValueError, TypeError):
                 power = 0
         if 'toughness' in data:
             try:
                 toughness = int(data['toughness'])
-            except:
+            except (ValueError, TypeError):
                 toughness = 0
                 
         return Card(

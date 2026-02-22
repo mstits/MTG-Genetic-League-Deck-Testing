@@ -5,7 +5,7 @@ Control, Blue Tempo) at elevated ELO ratings.  Evolved decks that beat
 bosses are demonstrating real strategic viability.
 """
 
-from data.db import save_deck, get_db_connection
+from data.db import get_db_connection
 import json
 
 

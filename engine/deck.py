@@ -6,7 +6,7 @@ copies of every card so mutations during gameplay don't pollute
 the original prototypes.
 """
 
-from typing import List, Dict, Tuple
+from typing import List, Tuple
 from .card import Card
 import copy
 

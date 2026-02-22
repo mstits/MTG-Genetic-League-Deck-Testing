@@ -15,7 +15,7 @@ Priority system (Rule 117):
     trigger interaction.
 """
 
-from typing import List, Optional, Callable, Dict
+from typing import List
 from .player import Player
 from .zone import Zone
 from .card import Card, StackItem

@@ -14,7 +14,6 @@ from league.manager import LeagueManager
 from data.db import save_deck, get_db_connection
 from simulation.parallel import seed_decks_parallel
 import json
-import random
 import time
 import sys
 import os

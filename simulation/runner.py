@@ -10,7 +10,6 @@ Usage:
 """
 
 from engine.game import Game
-from agents.base_agent import BaseAgent
 from simulation.stats import GameResult
 import traceback
 

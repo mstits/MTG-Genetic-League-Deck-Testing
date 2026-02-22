@@ -9,16 +9,14 @@ lower average kills (fewer turns to win) = higher fitness score.
 """
 
 import random
-from typing import List, Tuple, Dict, Set
+from typing import List
 from engine.deck import Deck
 from engine.card import Card
-from engine.card_builder import dict_to_card, BASIC_LANDS, inject_basic_lands
+from engine.card_builder import dict_to_card
 from engine.game import Game
 from engine.player import Player
 from simulation.runner import SimulationRunner
 from agents.heuristic_agent import HeuristicAgent
-import json
-import os
 import re
 
 # Color -> Basic Land mapping
@@ -63,7 +61,7 @@ def card_quality_score(card_data: dict) -> float:
         try:
             p = int(card_data.get('power', 0))
             t = int(card_data.get('toughness', 0))
-        except:
+        except (ValueError, TypeError):
             pass
         
         if cmc > 0:
@@ -454,8 +452,8 @@ class GeneticOptimizer:
                     wins += 0.5
                 total_turns += result.turns
                 games += 1
-            except:
-                pass
+            except Exception:
+                pass  # Skip games that error out during fitness evaluation
         
         if games == 0:
             return 0

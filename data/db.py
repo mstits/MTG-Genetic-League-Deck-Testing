@@ -13,7 +13,10 @@ busy timeout to handle multi-process access from parallel simulations.
 import sqlite3
 import json
 import os
+import logging
 from contextlib import contextmanager
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "league.db")
 
@@ -106,9 +109,12 @@ def init_db():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_card_stats_winrate ON card_stats(wins, total_matches)')
         
         conn.commit()
-        print(f"Database initialized at {DB_PATH}")
+        logger.info("Database initialized at %s", DB_PATH)
 
-def save_deck(name, card_list, generation=0, parent_ids=[], colors=""):
+def save_deck(name, card_list, generation=0, parent_ids=None, colors=""):
+    """Insert a new deck into the database. Returns the new deck's row ID."""
+    if parent_ids is None:
+        parent_ids = []
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''

@@ -4,9 +4,6 @@ Runs Bo3 matches across CPU cores for thousands-of-decks throughput.
 """
 import multiprocessing as mp
 from typing import List, Tuple, Optional, Dict
-import copy
-import json
-import traceback
 import os
 from datetime import datetime
 

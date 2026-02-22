@@ -16,7 +16,9 @@ class TestMechanics(unittest.TestCase):
         # Suppress logs
         self.game.log_event = lambda x: None
 
-    def create_creature(self, name, power, toughness, keywords=[], controller=None):
+    def create_creature(self, name, power, toughness, keywords=None, controller=None):
+        if keywords is None:
+            keywords = []
         c = Card(name=name, cost="", type_line="Creature", base_power=power, base_toughness=toughness)
         c.controller = controller or self.p1
         # Set keywords manually

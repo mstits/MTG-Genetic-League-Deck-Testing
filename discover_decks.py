@@ -20,9 +20,7 @@ import os
 import time
 import argparse
 import random
-import multiprocessing as mp
 from collections import Counter
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -31,7 +29,6 @@ from engine.deck import Deck
 from engine.game import Game
 from engine.player import Player
 from simulation.runner import SimulationRunner
-from simulation.stats import GameResult
 from agents.heuristic_agent import HeuristicAgent
 from optimizer.genetic import GeneticOptimizer
 from scripts.import_tournament import BOSS_ARCHETYPES
