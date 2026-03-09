@@ -20,13 +20,13 @@ The MTG Genetic League evolves decks through natural selection — populations o
 
 ## Screenshots
 
-| Dashboard & Leaderboard | Deck Detail & Matchup Spread |
+| Dashboard & Leaderboard | Metagame Analytics |
 |:-:|:-:|
-| ![Dashboard](docs/images/dashboard.png) | ![Deck Detail](docs/images/deck_detail.png) |
+| ![Dashboard](docs/images/dashboard.png) | ![Meta Analysis](docs/images/meta_trends.png) |
 
-| Metagame Analytics | Match Replay |
-|:-:|:-:|
-| ![Meta Trends](docs/images/meta_trends.png) | ![Match Replay](docs/images/match_replay.png) |
+| Deck Detail |
+|:-:|
+| ![Deck Detail](docs/images/deck_detail.png) |
 
 > **New here?** Check out the **[Getting Started Guide](docs/GETTING_STARTED.md)** for a walkthrough of every feature.
 

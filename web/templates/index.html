@@ -225,28 +225,44 @@
 
         <!-- Leaderboard -->
         <div id="panel-leaderboard" class="glass rounded-2xl p-6 glow-blue">
-            <h2 class="text-xl font-bold text-white mb-1">🏆 Top Decks</h2>
-            <p class="text-sm text-gray-400 mb-4">Ranked by Elo rating across all divisions</p>
-            <div class="overflow-x-auto">
-                <table class="w-full" id="leaderboard-table">
-                    <thead>
-                        <tr class="text-gray-400 text-xs uppercase tracking-wider border-b border-gray-700">
-                            <th class="p-3 text-left w-12">#</th>
-                            <th class="p-3 text-left">Deck Name</th>
-                            <th class="p-3 text-left">Colors</th>
-                            <th class="p-3 text-center" title="Salt Bracket">🧂 Bracket</th>
-                            <th class="p-3 text-left">Division</th>
-                            <th class="p-3 text-left">Elo</th>
-                            <th class="p-3 text-left">Record</th>
-                            <th class="p-3 text-left">Win%</th>
-                        </tr>
-                    </thead>
-                    <tbody id="leaderboard-body">
-                        <tr>
-                            <td colspan="8" class="p-6 text-center text-gray-500">Loading...</td>
-                        </tr>
-                    </tbody>
-                </table>
+            <div class="grid grid-cols-1 xl:grid-cols-4 gap-6">
+                <!-- Main Leaderboard Table (3/4 width) -->
+                <div class="xl:col-span-3">
+                    <h2 class="text-xl font-bold text-white mb-1">🏆 Top Decks</h2>
+                    <p class="text-sm text-gray-400 mb-4">Ranked by Elo rating across all divisions</p>
+                    <div class="overflow-x-auto">
+                        <table class="w-full" id="leaderboard-table">
+                            <thead>
+                                <tr class="text-gray-400 text-xs uppercase tracking-wider border-b border-gray-700">
+                                    <th class="p-3 text-left w-12">#</th>
+                                    <th class="p-3 text-left">Deck Name</th>
+                                    <th class="p-3 text-left">Colors</th>
+                                    <th class="p-3 text-center" title="Salt Bracket">🧂 Bracket</th>
+                                    <th class="p-3 text-left">Division</th>
+                                    <th class="p-3 text-left">Elo</th>
+                                    <th class="p-3 text-left">Record</th>
+                                    <th class="p-3 text-left">Win%</th>
+                                </tr>
+                            </thead>
+                            <tbody id="leaderboard-body">
+                                <tr>
+                                    <td colspan="8" class="p-6 text-center text-gray-500">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <!-- Top Cards Sidebar (1/4 width) -->
+                <div class="xl:col-span-1">
+                    <div class="bg-gray-800/50 rounded-xl p-4 border border-gray-700 sticky top-20">
+                        <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-1.5">
+                            🃏 Top Cards by Win Rate
+                        </h3>
+                        <div id="top-cards-sidebar">
+                            <div class="text-xs text-gray-500 text-center py-4">Loading...</div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -973,6 +989,9 @@
         loadData('leaderboard');
         fetch('/api/stats').then(r => r.text()).then(h => {
             document.getElementById('stats-container').innerHTML = h;
+        });
+        fetch('/api/top-cards-sidebar').then(r => r.text()).then(h => {
+            document.getElementById('top-cards-sidebar').innerHTML = h;
         });
 
         // Auto-refresh every 60 seconds (skip test-deck tab)

@@ -318,6 +318,44 @@ async def get_top_cards_api(request: Request):
     
     return html
 
+@app.get("/api/top-cards-sidebar", response_class=HTMLResponse)
+async def get_top_cards_sidebar(request: Request):
+    """Compact top cards for the dashboard sidebar."""
+    import urllib.parse
+    cards = get_top_cards(min_matches=5, limit=10)
+    
+    if not cards:
+        return '<div class="text-xs text-gray-500 text-center py-4">Gathering data... (needs 5+ matches)</div>'
+    
+    max_wr = max(c['win_rate'] for c in cards) if cards else 100
+    html = ""
+    for c in cards:
+        wr = c['win_rate']
+        bar_width = wr / max_wr * 100
+        if wr >= 60:
+            bar_color = '#22c55e'
+        elif wr >= 50:
+            bar_color = '#6366f1'
+        else:
+            bar_color = '#ef4444'
+        
+        encoded_name = urllib.parse.quote(c['card_name'])
+        safe_name = html_mod.escape(c['card_name'])
+        html += f"""
+        <div class="mb-2">
+            <div class="flex justify-between items-center mb-0.5">
+                <a href="https://scryfall.com/search?q=%21%22{encoded_name}%22" target="_blank" 
+                   class="text-xs text-gray-300 hover:text-blue-400 truncate max-w-[140px]">{safe_name}</a>
+                <span class="text-xs font-mono font-bold" style="color:{bar_color}">{wr}%</span>
+            </div>
+            <div class="w-full bg-gray-700/40 rounded-full h-1.5 overflow-hidden">
+                <div class="h-full rounded-full" style="width:{bar_width}%;background:{bar_color}"></div>
+            </div>
+        </div>
+        """
+    
+    return html
+
 @app.get("/api/meta", response_class=HTMLResponse)
 async def get_meta(request: Request):
     """Meta analysis — color, archetype, and synergy breakdown."""
@@ -400,6 +438,120 @@ async def get_meta(request: Request):
     </div>
     
     <h3 class="text-lg font-bold text-white mb-3">🎨 Color Performance</h3>
+    <table class="w-full text-sm">
+        <thead><tr class="text-gray-400 text-xs uppercase border-b border-gray-700">
+            <th class="p-2 text-left">Colors</th>
+            <th class="p-2 text-left">Decks</th>
+            <th class="p-2 text-left">Avg Elo</th>
+            <th class="p-2 text-left">Record</th>
+            <th class="p-2 text-left">Win%</th>
+        </tr></thead>
+        <tbody>
+    """
+    
+    # Color mapping for bars
+    color_bar_map = {
+        'W': '#F9D423', 'U': '#2563eb', 'B': '#7c3aed', 
+        'R': '#ef4444', 'G': '#22c55e', 'C': '#9ca3af'
+    }
+    
+    # Calculate totals for percentage bars
+    total_decks = sum(cs['count'] for cs in color_stats)
+    max_count = max((cs['count'] for cs in color_stats), default=1)
+    
+    # --- Color Distribution Chart ---
+    html += """
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <div class="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
+            <h3 class="text-lg font-bold text-white mb-4">🎨 Color Distribution</h3>
+    """
+    
+    for cs in color_stats:
+        if not cs['colors']:
+            badges = '<i class="ms ms-c ms-cost ms-shadow text-sm"></i>'
+            c_disp = "Colorless"
+            bar_color = color_bar_map['C']
+        else:
+            badges = ''.join(color_map.get(c, '') for c in cs['colors'])
+            c_disp = cs['colors']
+            # Use the first color for the bar gradient
+            bar_color = color_bar_map.get(cs['colors'][0], '#6366f1')
+        
+        pct = cs['count'] / total_decks * 100 if total_decks > 0 else 0
+        bar_width = cs['count'] / max_count * 100
+        
+        html += f"""
+            <div class="flex items-center gap-3 mb-2.5 group">
+                <div class="w-16 flex-shrink-0 text-right">{badges}</div>
+                <div class="flex-1 relative">
+                    <div class="w-full bg-gray-700/40 rounded-full h-6 overflow-hidden">
+                        <div class="h-full rounded-full transition-all duration-500 flex items-center px-2"
+                             style="width:{bar_width}%;background:linear-gradient(90deg,{bar_color}cc,{bar_color}66)">
+                            <span class="text-xs font-bold text-white drop-shadow-md">{cs['count']}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="w-12 text-right text-xs text-gray-400 font-mono">{pct:.0f}%</div>
+            </div>
+        """
+    
+    html += """
+        </div>
+    """
+    
+    # --- Win Rate Rankings ---
+    html += """
+        <div class="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
+            <h3 class="text-lg font-bold text-white mb-4">🏆 Win Rate by Color</h3>
+    """
+    
+    # Sort by win rate for this section
+    wr_sorted = sorted(color_stats, key=lambda x: x['total_wins'] / max(x['total_wins'] + x['total_losses'], 1), reverse=True)
+    
+    for cs in wr_sorted:
+        total = cs['total_wins'] + cs['total_losses']
+        if total == 0:
+            continue
+        wr_pct = cs['total_wins'] / total * 100
+        
+        if not cs['colors']:
+            badges = '<i class="ms ms-c ms-cost ms-shadow text-sm"></i>'
+            bar_color = color_bar_map['C']
+        else:
+            badges = ''.join(color_map.get(c, '') for c in cs['colors'])
+            bar_color = color_bar_map.get(cs['colors'][0], '#6366f1')
+        
+        # Color the bar green (>55%), yellow (45-55%), red (<45%)
+        if wr_pct >= 55:
+            wr_color = '#22c55e'
+        elif wr_pct >= 45:
+            wr_color = '#eab308'
+        else:
+            wr_color = '#ef4444'
+        
+        html += f"""
+            <div class="flex items-center gap-3 mb-2.5">
+                <div class="w-16 flex-shrink-0 text-right">{badges}</div>
+                <div class="flex-1 relative">
+                    <div class="w-full bg-gray-700/40 rounded-full h-6 overflow-hidden">
+                        <div class="h-full rounded-full transition-all duration-500 flex items-center justify-end px-2"
+                             style="width:{wr_pct}%;background:linear-gradient(90deg,{wr_color}cc,{wr_color}66)">
+                            <span class="text-xs font-bold text-white drop-shadow-md">{wr_pct:.1f}%</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="w-20 text-right text-xs text-gray-500 font-mono">{cs['total_wins']}W-{cs['total_losses']}L</div>
+            </div>
+        """
+    
+    html += """
+        </div>
+    </div>
+    """
+    
+    # --- Detailed Table ---
+    html += """
+    <h3 class="text-lg font-bold text-white mb-3">📊 Detailed Color Performance</h3>
     <table class="w-full text-sm">
         <thead><tr class="text-gray-400 text-xs uppercase border-b border-gray-700">
             <th class="p-2 text-left">Colors</th>
