@@ -186,35 +186,125 @@
                     </div>
                 </div>
 
-                <!-- Cards Grid with Scryfall Links -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-1">
-                    {% for name, count in deck.cards.items()|sort(attribute='0') %}
-                    <div
-                        class="flex justify-between items-center px-3 py-1.5 rounded hover:bg-gray-700/30 text-sm group">
-                        <div class="flex items-center gap-2 min-w-0 flex-wrap">
-                            {% if card_info.get(name, {}).get('scryfall_uri') %}
-                            <a href="{{ card_info[name]['scryfall_uri'] }}" target="_blank" rel="noopener"
-                                class="text-blue-400 hover:text-blue-300 hover:underline truncate"
-                                title="{{ card_info[name].get('type_line', '') }}">
-                                {{ name }}
-                            </a>
-                            {% else %}
-                            <span class="text-gray-200 truncate">{{ name }}</span>
-                            {% endif %}
-                            {% if card_info.get(name, {}).get('has_etb') %}
-                            <span class="text-xs bg-purple-900/50 text-purple-300 px-1 rounded">ETB</span>
-                            {% endif %}
-                            {% for kw in card_info.get(name, {}).get('keywords', [])[:3] %}
-                            <span class="text-xs bg-gray-700/50 text-gray-400 px-1 rounded hidden group-hover:inline">{{
-                                kw }}</span>
+                <!-- Categorized Decklist -->
+                {% set creatures = [] %}
+                {% set spells = [] %}
+                {% set lands = [] %}
+                {% for name, count in deck.cards.items()|sort(attribute='0') %}
+                {% set type_line = card_info.get(name, {}).get('type_line', '') %}
+                {% if 'Land' in type_line %}
+                {% if lands.append({'name': name, 'count': count}) %}{% endif %}
+                {% elif 'Creature' in type_line %}
+                {% if creatures.append({'name': name, 'count': count}) %}{% endif %}
+                {% else %}
+                {% if spells.append({'name': name, 'count': count}) %}{% endif %}
+                {% endif %}
+                {% endfor %}
+
+                {% set creature_total = creatures|sum(attribute='count') %}
+                {% set spell_total = spells|sum(attribute='count') %}
+                {% set land_total = lands|sum(attribute='count') %}
+
+                <div class="space-y-4">
+                    <!-- Creatures -->
+                    {% if creatures %}
+                    <div>
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-green-400 font-bold text-sm">Creatures ({{ creature_total }})</span>
+                            <div class="flex-1 border-t border-green-900/50"></div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-0.5">
+                            {% for c in creatures %}
+                            <div
+                                class="flex justify-between items-center px-3 py-1.5 rounded hover:bg-gray-700/30 text-sm group">
+                                <div class="flex items-center gap-2 min-w-0 flex-wrap">
+                                    <span class="text-xs text-green-400 font-bold w-5 text-right">{{ c.count }}x</span>
+                                    {% if card_info.get(c.name, {}).get('scryfall_uri') %}
+                                    <a href="{{ card_info[c.name]['scryfall_uri'] }}" target="_blank" rel="noopener"
+                                        class="text-blue-400 hover:text-blue-300 hover:underline truncate"
+                                        title="{{ card_info[c.name].get('type_line', '') }}">
+                                        {{ c.name }}
+                                    </a>
+                                    {% else %}
+                                    <span class="text-gray-200 truncate">{{ c.name }}</span>
+                                    {% endif %}
+                                    {% if card_info.get(c.name, {}).get('has_etb') %}
+                                    <span class="text-xs bg-purple-900/50 text-purple-300 px-1 rounded">ETB</span>
+                                    {% endif %}
+                                    {% for kw in card_info.get(c.name, {}).get('keywords', [])[:3] %}
+                                    <span
+                                        class="text-xs bg-gray-700/50 text-gray-400 px-1 rounded hidden group-hover:inline">{{
+                                        kw }}</span>
+                                    {% endfor %}
+                                </div>
+                            </div>
                             {% endfor %}
                         </div>
-                        <span class="text-gray-500 ml-2 font-mono text-xs 
-                            {% if count >= 4 %}text-indigo-400 font-bold{% endif %}">
-                            ×{{ count }}
-                        </span>
                     </div>
-                    {% endfor %}
+                    {% endif %}
+
+                    <!-- Spells -->
+                    {% if spells %}
+                    <div>
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-red-400 font-bold text-sm">Spells ({{ spell_total }})</span>
+                            <div class="flex-1 border-t border-red-900/50"></div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-0.5">
+                            {% for c in spells %}
+                            <div
+                                class="flex justify-between items-center px-3 py-1.5 rounded hover:bg-gray-700/30 text-sm group">
+                                <div class="flex items-center gap-2 min-w-0 flex-wrap">
+                                    <span class="text-xs text-red-400 font-bold w-5 text-right">{{ c.count }}x</span>
+                                    {% if card_info.get(c.name, {}).get('scryfall_uri') %}
+                                    <a href="{{ card_info[c.name]['scryfall_uri'] }}" target="_blank" rel="noopener"
+                                        class="text-blue-400 hover:text-blue-300 hover:underline truncate"
+                                        title="{{ card_info[c.name].get('type_line', '') }}">
+                                        {{ c.name }}
+                                    </a>
+                                    {% else %}
+                                    <span class="text-gray-200 truncate">{{ c.name }}</span>
+                                    {% endif %}
+                                    {% for kw in card_info.get(c.name, {}).get('keywords', [])[:3] %}
+                                    <span
+                                        class="text-xs bg-gray-700/50 text-gray-400 px-1 rounded hidden group-hover:inline">{{
+                                        kw }}</span>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Lands -->
+                    {% if lands %}
+                    <div>
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-yellow-400 font-bold text-sm">Lands ({{ land_total }})</span>
+                            <div class="flex-1 border-t border-yellow-900/50"></div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-0.5">
+                            {% for c in lands %}
+                            <div
+                                class="flex justify-between items-center px-3 py-1.5 rounded hover:bg-gray-700/30 text-sm group">
+                                <div class="flex items-center gap-2 min-w-0 flex-wrap">
+                                    <span class="text-xs text-yellow-400 font-bold w-5 text-right">{{ c.count }}x</span>
+                                    {% if card_info.get(c.name, {}).get('scryfall_uri') %}
+                                    <a href="{{ card_info[c.name]['scryfall_uri'] }}" target="_blank" rel="noopener"
+                                        class="text-blue-400 hover:text-blue-300 hover:underline truncate"
+                                        title="{{ card_info[c.name].get('type_line', '') }}">
+                                        {{ c.name }}
+                                    </a>
+                                    {% else %}
+                                    <span class="text-gray-200 truncate">{{ c.name }}</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
                 </div>
 
                 <!-- Export Text (hidden, for copy) -->
@@ -230,13 +320,28 @@
             <p class="text-sm text-gray-400 mb-4">Win rate breakdown by opponent archetype from simulation data.</p>
             <div class="space-y-3">
                 {% for mu in matchup_spread %}
+                {% set arch_lower = mu.archetype|lower %}
                 <div class="flex items-center gap-4">
-                    <div class="w-28 text-sm text-gray-300 font-medium truncate" title="{{ mu.archetype }}">{{
-                        mu.archetype }}</div>
+                    <div class="w-28 text-sm font-medium truncate
+                        {% if 'aggro' in arch_lower or 'burn' in arch_lower %}text-red-400
+                        {% elif 'control' in arch_lower %}text-blue-400
+                        {% elif 'midrange' in arch_lower %}text-green-400
+                        {% elif 'combo' in arch_lower %}text-purple-400
+                        {% else %}text-gray-300{% endif %}" title="{{ mu.archetype }}">
+                        {% if 'aggro' in arch_lower or 'burn' in arch_lower %}🗡️
+                        {% elif 'control' in arch_lower %}🛡️
+                        {% elif 'midrange' in arch_lower %}⚖️
+                        {% elif 'combo' in arch_lower %}⚡
+                        {% endif %}
+                        {{ mu.archetype }}
+                    </div>
                     <div class="flex-1 h-6 bg-gray-800 rounded-full overflow-hidden relative">
-                        <div class="h-full rounded-full transition-all duration-500"
-                            style="width: {{ mu.win_rate }}%; background: linear-gradient(90deg, 
-                             {% if mu.win_rate >= 55 %}#22c55e, #4ade80{% elif mu.win_rate >= 45 %}#eab308, #facc15{% else %}#ef4444, #f87171{% endif %});">
+                        <div class="h-full rounded-full transition-all duration-500" style="width: {{ mu.win_rate }}%; background: linear-gradient(90deg, 
+                             {% if 'aggro' in arch_lower or 'burn' in arch_lower %}#ea580c, #f97316
+                             {% elif 'control' in arch_lower %}#2563eb, #3b82f6
+                             {% elif 'midrange' in arch_lower %}#16a34a, #22c55e
+                             {% elif 'combo' in arch_lower %}#7c3aed, #a855f7
+                             {% else %}#4f46e5, #6366f1{% endif %});">
                         </div>
                         <span
                             class="absolute inset-0 flex items-center justify-center text-xs font-bold text-white drop-shadow-md">

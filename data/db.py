@@ -15,7 +15,9 @@ import os
 import json
 import sqlite3
 import logging
+import time
 from contextlib import contextmanager
+from typing import Any, Generator, Optional, Union
 
 # PostgreSQL URL (optional — will fallback to SQLite if unavailable)
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/mtg_league")
@@ -24,15 +26,26 @@ logger = logging.getLogger(__name__)
 
 # Track which backend we're using
 _use_sqlite = None
+_pg_retry_after = 0  # Timestamp after which we retry PG connection
+_PG_RETRY_INTERVAL = 300  # 5 minutes between PG reconnect attempts
 _SQLITE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'league.db')
 
 
 class DictRow(dict):
-    """A dict subclass that also supports attribute-style access and integer indexing."""
+    """A dict subclass that also supports attribute-style access and integer indexing.
+    Values are cached as a tuple for O(1) integer access."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._values_cache = tuple(super().values())
+
     def __getitem__(self, key):
         if isinstance(key, int):
-            return list(self.values())[key]
+            return self._values_cache[key]
         return super().__getitem__(key)
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        self._values_cache = tuple(super().values())
 
 
 class SQLiteDictCursor:
@@ -103,7 +116,7 @@ class SQLiteConnection:
         self.close()
 
 
-def _pg_to_sqlite(sql):
+def _pg_to_sqlite(sql: str) -> str:
     """Convert PostgreSQL SQL to be SQLite-compatible."""
     import re
     # %s -> ?
@@ -132,29 +145,40 @@ def _pg_to_sqlite(sql):
 
 @contextmanager
 def get_db_connection():
-    """Yield a database connection handling psycopg2/sqlite3 failover transparently."""
-    global _use_sqlite
+    """Yield a database connection handling psycopg2/sqlite3 failover transparently.
     
-    # Try PostgreSQL first (only once)
-    if _use_sqlite is None:
+    Failover recovery: if PG goes down, retries every 5 minutes instead of
+    permanently latching to SQLite.
+    """
+    global _use_sqlite, _pg_retry_after
+    
+    # Try PostgreSQL if we haven't decided yet, or if retry interval has elapsed
+    should_try_pg = (_use_sqlite is None or 
+                     (_use_sqlite is True and time.time() >= _pg_retry_after))
+    
+    if should_try_pg:
         try:
             import psycopg2
             import psycopg2.extras
             conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.DictCursor)
             conn.autocommit = False
+            if _use_sqlite is not False:
+                logger.info("Connected to PostgreSQL%s", 
+                           " (recovered from SQLite failover)" if _use_sqlite else "")
             _use_sqlite = False
-            logger.info("Connected to PostgreSQL")
             try:
                 yield conn
             finally:
                 conn.close()
             return
         except Exception as e:
-            logger.warning("PostgreSQL unavailable (%s), falling back to SQLite at %s", e, _SQLITE_PATH)
+            if _use_sqlite is None:
+                logger.warning("PostgreSQL unavailable (%s), falling back to SQLite at %s", e, _SQLITE_PATH)
             _use_sqlite = True
+            _pg_retry_after = time.time() + _PG_RETRY_INTERVAL
     
     if _use_sqlite is False:
-        # PostgreSQL mode
+        # PostgreSQL mode (confirmed working)
         try:
             import psycopg2
             import psycopg2.extras
@@ -166,8 +190,9 @@ def get_db_connection():
                 conn.close()
             return
         except Exception:
-            # PG went down, failover to SQLite
+            logger.warning("PostgreSQL connection lost, failing over to SQLite")
             _use_sqlite = True
+            _pg_retry_after = time.time() + _PG_RETRY_INTERVAL
     
     # SQLite mode
     conn = SQLiteConnection(_SQLITE_PATH)
@@ -180,7 +205,7 @@ def get_db_connection():
         conn.close()
 
 
-def init_db():
+def init_db() -> None:
     """Create all required tables and indexes if they do not exist."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -328,7 +353,9 @@ def init_db():
         logger.info("Database initialized (%s)", backend)
 
 
-def save_deck(name, card_list, generation=0, parent_ids=None, colors="", archetype=None):
+def save_deck(name: str, card_list: list[dict], generation: int = 0,
+              parent_ids: Optional[list[int]] = None, colors: str = "",
+              archetype: Optional[str] = None) -> int:
     """Insert a new deck into the database. Returns the new deck's row ID."""
     if parent_ids is None:
         parent_ids = []
@@ -364,43 +391,24 @@ def update_card_stats(card_names, won: bool):
     with get_db_connection() as conn:
         cursor = conn.cursor()
         for name in card_names:
-            if _use_sqlite:
-                cursor.execute('''
-                    INSERT INTO card_stats (card_name, appearances, wins, losses, total_matches)
-                    VALUES (?, 1, ?, ?, 1)
-                    ON CONFLICT(card_name) DO UPDATE SET
-                        appearances = card_stats.appearances + 1,
-                        wins = card_stats.wins + ?,
-                        losses = card_stats.losses + ?,
-                        total_matches = card_stats.total_matches + 1,
-                        last_updated = CURRENT_TIMESTAMP
-                ''', (name, 1 if won else 0, 0 if won else 1, 1 if won else 0, 0 if won else 1))
-            else:
-                cursor.execute('''
-                    INSERT INTO card_stats (card_name, appearances, wins, losses, total_matches)
-                    VALUES (%s, 1, %s, %s, 1)
-                    ON CONFLICT(card_name) DO UPDATE SET
-                        appearances = card_stats.appearances + 1,
-                        wins = card_stats.wins + %s,
-                        losses = card_stats.losses + %s,
-                        total_matches = card_stats.total_matches + 1,
-                        last_updated = CURRENT_TIMESTAMP
-                ''', (name, 1 if won else 0, 0 if won else 1, 1 if won else 0, 0 if won else 1))
+            cursor.execute('''
+                INSERT INTO card_stats (card_name, appearances, wins, losses, total_matches)
+                VALUES (%s, 1, %s, %s, 1)
+                ON CONFLICT(card_name) DO UPDATE SET
+                    appearances = card_stats.appearances + 1,
+                    wins = card_stats.wins + %s,
+                    losses = card_stats.losses + %s,
+                    total_matches = card_stats.total_matches + 1,
+                    last_updated = CURRENT_TIMESTAMP
+            ''', (name, 1 if won else 0, 0 if won else 1, 1 if won else 0, 0 if won else 1))
         conn.commit()
 
 
-def get_top_cards(min_matches=5, limit=20):
+def get_top_cards(min_matches: int = 5, limit: int = 20) -> list[dict]:
     """Get cards with highest win rates (minimum match threshold)."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT card_name, wins, losses, total_matches,
-                   ROUND(CAST(wins AS REAL) / CASE WHEN total_matches = 0 THEN 1 ELSE total_matches END * 100, 1) AS win_rate
-            FROM card_stats
-            WHERE total_matches >= ?
-            ORDER BY win_rate DESC
-            LIMIT ?
-        ''' if _use_sqlite else '''
             SELECT card_name, wins, losses, total_matches,
                    ROUND(CAST(wins AS NUMERIC) / CASE WHEN total_matches = 0 THEN 1 ELSE total_matches END * 100, 1) AS win_rate
             FROM card_stats
@@ -421,10 +429,6 @@ def log_mutation(deck_id: int, generation: int, card_added: str,
         cursor.execute('''
             INSERT INTO mutations (deck_id, generation, card_added, card_removed,
                                    elo_before, elo_after, elo_delta)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''' if _use_sqlite else '''
-            INSERT INTO mutations (deck_id, generation, card_added, card_removed,
-                                   elo_before, elo_after, elo_delta)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
         ''', (deck_id, generation, card_added, card_removed,
               elo_before, elo_after, elo_after - elo_before))
@@ -436,15 +440,6 @@ def get_mutation_heatmap(limit: int = 50) -> list[dict]:
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT card_added, card_removed,
-                   ROUND(CAST(AVG(elo_delta) AS REAL), 1) AS avg_delta,
-                   COUNT(*) AS swap_count
-            FROM mutations
-            GROUP BY card_added, card_removed
-            HAVING COUNT(*) >= 2
-            ORDER BY avg_delta DESC
-            LIMIT ?
-        ''' if _use_sqlite else '''
             SELECT card_added, card_removed,
                    ROUND(CAST(AVG(elo_delta) AS NUMERIC), 1) AS avg_delta,
                    COUNT(*) AS swap_count
@@ -468,14 +463,6 @@ def induct_to_hall_of_fame(deck_id: int, deck_name: str, peak_elo: float,
         cursor.execute('''
             INSERT INTO hall_of_fame (deck_id, deck_name, peak_elo, peak_season,
                                       total_wins, total_matches, colors, card_list)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(deck_id) DO UPDATE SET
-                peak_elo = MAX(hall_of_fame.peak_elo, excluded.peak_elo),
-                total_wins = excluded.total_wins,
-                total_matches = excluded.total_matches
-        ''' if _use_sqlite else '''
-            INSERT INTO hall_of_fame (deck_id, deck_name, peak_elo, peak_season,
-                                      total_wins, total_matches, colors, card_list)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT(deck_id) DO UPDATE SET
                 peak_elo = GREATEST(hall_of_fame.peak_elo, EXCLUDED.peak_elo),
@@ -491,12 +478,6 @@ def get_hall_of_fame(limit: int = 50) -> list[dict]:
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT deck_id, deck_name, peak_elo, peak_season,
-                   total_wins, total_matches, colors, inducted_at
-            FROM hall_of_fame
-            ORDER BY peak_elo DESC
-            LIMIT ?
-        ''' if _use_sqlite else '''
             SELECT deck_id, deck_name, peak_elo, peak_season,
                    total_wins, total_matches, colors, inducted_at
             FROM hall_of_fame

@@ -79,15 +79,6 @@ class Game:
         self.active_player_index = 0
         self.priority_player_index = 0
         
-        # Monkey-patch player graveyards for Rest in Peace continuous effect (Rule 614)
-        for p in self.players:
-            original_add = p.graveyard.add
-            def hook_add(card, origin=original_add, game=self):
-                if any(c.name == "Rest in Peace" for c in game.battlefield.cards):
-                    game.exile.add(card)
-                else:
-                    origin(card)
-            p.graveyard.add = hook_add
         self.phase_index = 0
         self.phases = [
             "Untap", "Upkeep", "Draw", 
@@ -132,6 +123,11 @@ class Game:
         # Replacement effects registry (Rule 614)
         # Each entry: {'type': 'damage'|'death'|'draw', 'source': Card, 'check': fn, 'apply': fn}
         self.replacement_effects = []
+        
+        # Register Rest in Peace as a proper replacement effect (Rule 614)
+        # instead of monkey-patching graveyard.add — avoids circular refs 
+        # and per-call battlefield scans when RIP isn't in play
+        self._register_rest_in_peace_replacement()
         
         # Pending Cast state machine (CR 601.2)
         self.pending_cast = None
@@ -187,6 +183,16 @@ class Game:
         for card in new_game.battlefield.cards:
             if hasattr(card, 'controller') and card.controller in self.players:
                 card.controller = new_game.players[self.players.index(card.controller)]
+        
+        # Clone replacement effects and re-link source references to cloned battlefield cards
+        old_to_new = {id(old): new for old, new in zip(self.battlefield.cards, new_game.battlefield.cards)}
+        new_game.replacement_effects = []
+        for re_eff in self.replacement_effects:
+            cloned_eff = dict(re_eff)
+            src = re_eff.get('source')
+            if src is not None and id(src) in old_to_new:
+                cloned_eff['source'] = old_to_new[id(src)]
+            new_game.replacement_effects.append(cloned_eff)
                 
         return new_game
 
@@ -317,6 +323,28 @@ class Game:
             'apply': apply_fn
         })
 
+    def _register_rest_in_peace_replacement(self):
+        """Register RIP as a replacement effect: cards that would go to graveyard go to exile instead.
+        This replaces the old monkey-patch approach which created circular references."""
+        def rip_check(event, game):
+            """Check if Rest in Peace is on the battlefield."""
+            return any(c.name == "Rest in Peace" for c in game.battlefield.cards)
+        
+        def rip_apply(event, game):
+            """Redirect the card from graveyard to exile."""
+            card = event.get('card')
+            if card:
+                game.exile.add(card)
+                return True  # Event was replaced
+            return False
+        
+        self.register_replacement_effect(
+            source=None,  # Global effect — no specific source card
+            effect_type='graveyard',
+            check_fn=rip_check,
+            apply_fn=rip_apply
+        )
+
     @property
     def active_player(self) -> Player:
         return self.players[self.active_player_index]
@@ -336,7 +364,7 @@ class Game:
     def log_event(self, message: str):
         self.log.append(message)
 
-    def start_game(self):
+    def start_game(self) -> None:
         """Initialize the game: shuffle, draw 7, mulligan, set up turn 1.
 
         First player skips their draw step (Rule 103.8) and enters Main 1
@@ -371,7 +399,7 @@ class Game:
         # Log starting state
         self._log_turn_state()
     
-    def _check_mulligan(self, player):
+    def _check_mulligan(self, player: Player) -> None:
         """London Mulligan (Rule 103.4) with AI evaluation."""
         try:
             from agents.mulligan_ai import MulliganAI
@@ -455,7 +483,7 @@ class Game:
         for player in self.players:
             player.reset_mana_pool()
 
-    def advance_phase(self):
+    def advance_phase(self) -> bool:
         """Advance to the next phase of the current turn.
 
         Handles automatic actions for each phase (untap, draw, combat damage,
@@ -663,13 +691,13 @@ class Game:
         self.check_state_based_actions()
         return not self.game_over
 
-    def _do_untap(self):
+    def _do_untap(self) -> None:
         """Untap all permanents controlled by the active player (Rule 502.3)."""
         for card in self.battlefield.cards:
             if card.controller == self.active_player:
                 card.tapped = False
 
-    def _fire_upkeep_triggers(self):
+    def _fire_upkeep_triggers(self) -> None:
         """Fire 'at the beginning of your upkeep' triggers (Rule 503.1).
         Triggers go on the stack so opponents can respond."""
         active = self.active_player
@@ -731,7 +759,7 @@ class Game:
         #     if self.game_over:
         #         return
 
-    def _do_cleanup(self):
+    def _do_cleanup(self) -> None:
         """Cleanup step (Rule 514):
         1. Active player discards to max hand size (7)
         2. Remove all damage from permanents

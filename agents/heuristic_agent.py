@@ -17,6 +17,7 @@ Decision priority (in get_action):
 """
 
 from .base_agent import BaseAgent
+from engine.player import Player
 
 
 class HeuristicAgent(BaseAgent):
@@ -131,7 +132,6 @@ class HeuristicAgent(BaseAgent):
         opp_power = sum(max(0, c.power or 0) for c in opp_creatures)
         
         # Deck speed: average CMC of spells in hand
-        from engine.player import Player
         hand_cmcs = [Player._parse_cmc(c.cost) for c in player.hand.cards if c.cost and not c.is_land]
         avg_hand_cmc = sum(hand_cmcs) / max(len(hand_cmcs), 1)
         
@@ -200,6 +200,219 @@ class HeuristicAgent(BaseAgent):
             else: score += 1
             
         return score
+
+    # ── Extracted Scoring Functions ──────────────────────────────────
+    # These were inline closures inside get_action. Extracted as methods
+    # so they are independently testable and the 911-line function is
+    # easier to navigate.
+
+    @staticmethod
+    def _score_land(action, next_turn_spells, hand_spells, in_play_colors, has_immediate_play, _re):
+        """Score a land action based on color-fixing, curve enablement, and ETB status."""
+        land = action['card']
+        produces = set(getattr(land, 'produces', []))
+        is_tapped = getattr(land, 'enters_tapped', False)
+        score = 0
+        for spell in next_turn_spells:
+            needed = set(_re.findall(r'\{([WUBRG])\}', spell.cost))
+            available = in_play_colors | produces
+            if needed <= available:
+                score += 3
+            elif needed & produces:
+                score += 1
+        needed_colors = set()
+        for spell in hand_spells:
+            for c in _re.findall(r'\{([WUBRG])\}', spell.cost):
+                needed_colors.add(c)
+        missing = needed_colors - in_play_colors
+        if produces & missing:
+            score += 5
+        if is_tapped:
+            if has_immediate_play:
+                score -= 3
+            else:
+                score += 1
+        else:
+            if has_immediate_play:
+                score += 2
+        return score
+
+    @staticmethod
+    def _score_threat(c, game, role):
+        """Score an opponent permanent for removal targeting — unified for all permanent types."""
+        s = 0
+        if c.is_creature:
+            s = (c.power or 0) + (c.toughness or 0) * 0.3
+            if c.has_flying: s += 1.5
+            if c.has_trample: s += 1
+            if c.has_lifelink: s += 1
+            if c.has_deathtouch: s += 1
+            if c.has_first_strike or c.has_double_strike: s += 1
+            if c.has_hexproof: s += 1
+            if c.has_menace: s += 1
+            if c.etb_effect: s += 0.5
+            if c.combat_damage_trigger: s += 1
+            if getattr(c, 'has_self_pump', False): s += 0.5
+            s += getattr(c, 'self_pump_power', 0) * 0.3
+            if getattr(c, 'sacrifice_effect', None): s += 1
+            if getattr(c, 'enchantment_trigger', None): s += 1
+            if c.attack_trigger: s += 3.0 + (c.power or 0) * 0.5
+            if getattr(c, 'is_mana_dork', False):
+                s += 8.0 if game.turn_count <= 3 else 2.0
+        if not c.is_creature:
+            s = 3.0
+            if c.is_planeswalker:
+                s += 8.0
+                loyalty = getattr(c, 'loyalty', 0)
+                s += loyalty * 0.5
+        if c.static_effect:
+            s += 5.0
+        tap_text = (getattr(c, 'tap_ability_effect', None) or '')
+        if isinstance(tap_text, dict):
+            tap_text = str(tap_text)
+        if tap_text and 'draw' in str(tap_text).lower():
+            s += 6.0
+        elif getattr(c, 'tap_ability_effect', None):
+            s += 2.0
+        if c.upkeep_effect: s += 3.0
+        if getattr(c, 'enchantment_trigger', None): s += 3.0
+        if role == 'control':
+            if c.upkeep_effect: s += 2.0
+            if c.is_creature and (c.power or 0) >= 4: s += 2.0
+        elif role == 'aggro':
+            if c.is_creature:
+                s += (c.toughness or 0) * 0.5
+                if c.has_lifelink: s += 3.0
+                if c.has_first_strike: s += 1.0
+        if c.is_creature and game.turn_count <= 4:
+            s += (c.toughness or 0) * 0.3
+        if c.is_creature and game.current_phase == 'Main 1' and role != 'control':
+            s += (c.toughness or 0) * 0.2
+        return s
+
+    @staticmethod
+    def _score_removal(a, available_mana, other_castables):
+        """Score removal spell value based on cost efficiency and follow-up potential."""
+        r_cmc = Player._parse_cmc(a['card'].cost) if a['card'].cost else 0
+        remaining = available_mana - r_cmc
+        followup_bonus = 0
+        for other in other_castables:
+            other_cmc = Player._parse_cmc(other['card'].cost) if other['card'].cost else 0
+            if other_cmc <= remaining and other_cmc > 0:
+                followup_bonus = max(followup_bonus, 2.0)
+                break
+        base = 1.0
+        if getattr(a['card'], 'is_exile_removal', False): base = 1.5
+        return base + followup_bonus
+
+    def _score_creature(self, action, game, player, role, available_mana, num_creatures):
+        """Evaluate creature value for casting based on stats, keywords, and mana curve fit."""
+        c = action['card']
+        cda = getattr(c, 'cda_type', '')
+        if cda == 'deaths_shadow':
+            effective_toughness = (c.base_toughness or 13) - player.life
+            if effective_toughness <= 0:
+                return -999
+        elif cda == 'scourge_skyclaves':
+            highest_life = max(p.life for p in game.players)
+            if 20 - highest_life <= 0:
+                return -999
+        score = (c.power or 0)
+        if c.has_flying: score += 2
+        if c.has_haste: score += 2
+        if c.has_lifelink: score += 1.5
+        if c.has_deathtouch: score += 1.5
+        if c.has_trample: score += 1
+        if c.has_first_strike or c.has_double_strike: score += 1.5
+        if c.etb_effect: score += 2
+        if c.has_menace: score += 1
+        if c.has_prowess: score += 1.5
+        if c.has_drawback: score -= 3
+        if hasattr(c, 'static_effect') and c.static_effect: score += 3
+        if hasattr(c, 'death_effect') and c.death_effect: score += 1.5
+        if c.has_ward: score += 1
+        if c.has_vigilance: score += 0.5
+        if c.has_flash: score += 1
+        if c.has_indestructible: score += 2
+        if getattr(c, 'has_protection', False): score += 1.5
+        if c.has_hexproof: score += 1
+        if getattr(c, 'tap_ability_effect', None): score += 1.5
+        if getattr(c, 'sacrifice_effect', None): score += 1
+        if getattr(c, 'has_self_pump', False): score += 0.5
+        score += getattr(c, 'self_pump_power', 0) * 0.5
+        if getattr(c, 'broad_trigger', None): score += 1
+        if c.attack_trigger: score += 1.5
+        if c.combat_damage_trigger: score += 1
+        if c.upkeep_effect: score += 1.5
+        if getattr(c, 'enchantment_trigger', None): score += 1
+        if c.landfall_effect: score += 1
+        if c.has_undying or c.has_persist: score += 1
+        if 'Artifact' in (c.type_line or ''):
+            artifact_count = self._count_artifacts(game, player)
+            if getattr(c, 'has_affinity', False):
+                score += min(artifact_count, 4) * 1.5
+            if artifact_count >= 2:
+                score += 2.0
+            if artifact_count >= 1:
+                score += 1.0
+        if role == 'aggro':
+            if c.has_haste: score += 3.0
+            if c.has_trample: score += 2.0
+            if c.is_unblockable: score += 2.0
+        elif role == 'control':
+            if c.has_lifelink: score += 2.0
+            if c.etb_effect: score += 2.0
+            score += (c.toughness or 0) * 0.5
+        actual_cost = c.cost
+        if actual_cost and available_mana > 0:
+            spell_cmc = Player._parse_cmc(actual_cost)
+            if spell_cmc == available_mana: score += 3.0
+            elif spell_cmc == available_mana - 1: score += 1.5
+            elif available_mana > 3 and spell_cmc <= 1 and num_creatures > 1: score -= 1.0
+            if getattr(c, 'kicker_cost', ''):
+                kicker_cmc = Player._parse_cmc(c.kicker_cost)
+                if spell_cmc + kicker_cmc <= available_mana:
+                    score += 2.0
+        return score
+
+    @staticmethod
+    def _score_artifact(a, artifact_count):
+        """Score non-creature artifact spells for deployment priority."""
+        c = a['card']
+        s = 2.0
+        cmc = Player._parse_cmc(c.cost) if c.cost else 0
+        if cmc == 0: s += 5.0
+        if 'Equipment' in (c.type_line or ''): s += 3.0
+        if c.etb_effect: s += 2.0
+        if c.static_effect: s += 3.0
+        if artifact_count >= 2: s += 2.0
+        return s
+
+    @staticmethod
+    def _score_equip_target(action):
+        """Score equip targets, prioritizing creatures with evasion or combat keywords."""
+        target = action.get('target')
+        if not target: return 0
+        s = (target.power or 0)
+        if target.has_flying: s += 3
+        if target.has_trample: s += 2
+        if target.has_menace: s += 2
+        if target.has_double_strike: s += 3
+        if target.has_deathtouch: s += 1
+        if target.has_lifelink: s += 1
+        return s
+
+    @staticmethod
+    def _score_spell(a, available_mana):
+        """Score non-creature spells based on mana efficiency and card type impact."""
+        c = a['card']
+        cmc = Player._parse_cmc(c.cost) if c.cost else 0
+        mana_efficiency = 3.0 if cmc == available_mana else 1.5 if cmc == available_mana - 1 else 0
+        bonus = 0
+        if c.is_creature: bonus += (c.power or 0) + (c.toughness or 0) * 0.3
+        if c.is_removal: bonus += 3
+        if c.etb_effect: bonus += 1
+        return mana_efficiency + bonus
 
     def get_action(self, game, player) -> dict:
         """Choose the best action using the priority-based heuristic system."""
@@ -447,7 +660,6 @@ class HeuristicAgent(BaseAgent):
                 return land_actions[0]
             
             import re as _re
-            from engine.player import Player
             
             # Gather hand spells and their color requirements + CMC
             hand_spells = [c for c in player.hand.cards if c.cost and not c.is_land]
@@ -474,56 +686,24 @@ class HeuristicAgent(BaseAgent):
             )
             
             def land_score(action):
-                land = action['card']
-                produces = set(getattr(land, 'produces', []))
-                is_tapped = getattr(land, 'enters_tapped', False)
-                score = 0
-                
-                # How many next-turn spells does this land enable?
-                for spell in next_turn_spells:
-                    needed = set(_re.findall(r'\{([WUBRG])\}', spell.cost))
-                    available = in_play_colors | produces
-                    if needed <= available:
-                        score += 3  # This land enables casting this spell
-                    elif needed & produces:  # Partially helps
-                        score += 1
-                
-                # Missing color bonus: if this fills a gap
-                needed_colors = set()
-                for spell in hand_spells:
-                    for c in _re.findall(r'\{([WUBRG])\}', spell.cost):
-                        needed_colors.add(c)
-                missing = needed_colors - in_play_colors
-                if produces & missing:
-                    score += 5  # Fills a missing color — high priority
-                
-                # Tapped vs untapped logic
-                if is_tapped:
-                    if has_immediate_play:
-                        score -= 3  # We have something to cast NOW, untapped is better
-                    else:
-                        score += 1  # No immediate play, tapped land is "free"
-                else:
-                    if has_immediate_play:
-                        score += 2  # Untapped land lets us cast now
-                
-                return score
+                return self._score_land(action, next_turn_spells, hand_spells, in_play_colors, has_immediate_play, _re)
             
             best_land = max(land_actions, key=land_score)
             return best_land
+
+        # === POST-COMBAT SEQUENCING ===
+        role = self._assess_role(game, player, opp)
+        interaction_risk = self._evaluate_hidden_interaction(game, opp)
+        available_mana = player.available_mana(game) if hasattr(player, 'available_mana') else 0
 
         # ── T1: Consolidated Instant-Speed Hold-Up ──────────────────
         if self._should_hold_mana(game, player, role):
             game.log_event(f"  → {player.name}: holding mana open for instant-speed interaction")
             return {'type': 'pass'}
 
-        # === POST-COMBAT SEQUENCING ===
         # Pro-level play: cast non-haste creatures in Main 2 (after combat)
         # to deny the opponent blocking information. Only cast haste creatures
         # and pre-combat setup (removal, buffs) in Main 1.
-        role = self._assess_role(game, player, opp)
-        interaction_risk = self._evaluate_hidden_interaction(game, opp)
-        available_mana = player.available_mana(game) if hasattr(player, 'available_mana') else 0
 
         # === PROBABILISTIC PLAY: BAITING ===
         # If Counterspell risk is high (e.g. they hold UU), sequence a low-value spell first to draw it out.
@@ -531,8 +711,6 @@ class HeuristicAgent(BaseAgent):
             affordable_spells = [a for a in legal if a['type'] == 'announce_cast' 
                                  and getattr(player, 'can_pay_cost', lambda x,y: True)(a['card'].cost, game)]
             if len(affordable_spells) >= 2:
-                from engine.player import Player
-                # Sort spells purely by cost (cheapest first)
                 affordable_spells.sort(key=lambda a: Player._parse_cmc(a['card'].cost or ''))
                 cheapest = affordable_spells[0]
                 expensive = affordable_spells[-1]
@@ -609,79 +787,9 @@ class HeuristicAgent(BaseAgent):
                 if valid_targets:
                     # Score threats by comprehensive value — works for ALL permanent types
                     def threat_score(c):
-                        """Score opponent threats for removal targeting — unified for all permanents."""
-                        s = 0
-                        # Creature combat stats
-                        if c.is_creature:
-                            s = (c.power or 0) + (c.toughness or 0) * 0.3
-                            if c.has_flying: s += 1.5
-                            if c.has_trample: s += 1
-                            if c.has_lifelink: s += 1
-                            if c.has_deathtouch: s += 1
-                            if c.has_first_strike or c.has_double_strike: s += 1
-                            if c.has_hexproof: s += 1
-                            if c.has_menace: s += 1
-                            if c.etb_effect: s += 0.5
-                            if c.combat_damage_trigger: s += 1
-                            if getattr(c, 'has_self_pump', False): s += 0.5
-                            s += getattr(c, 'self_pump_power', 0) * 0.3
-                            if getattr(c, 'sacrifice_effect', None): s += 1
-                            if getattr(c, 'enchantment_trigger', None): s += 1
-                            if c.attack_trigger: s += 3.0 + (c.power or 0) * 0.5
-                            # Mana dorks — HIGH priority early
-                            if getattr(c, 'is_mana_dork', False):
-                                s += 8.0 if game.turn_count <= 3 else 2.0
-                        
-                        # NON-CREATURE PERMANENTS — enchantments, artifacts, planeswalkers
-                        if not c.is_creature:
-                            # Base value for non-creature permanents
-                            s = 3.0  # Higher base than a vanilla 2/2
-                            
-                            # Planeswalkers are high-priority removal targets
-                            if c.is_planeswalker:
-                                s += 8.0
-                                loyalty = getattr(c, 'loyalty', 0)
-                                s += loyalty * 0.5  # Higher loyalty = closer to ultimate
-                        
-                        # Universal scoring — works for all permanent types
-                        # Static effects are #1 removal priority (value engines)
-                        if c.static_effect:
-                            s += 5.0
-                        # Tap abilities with draw are devastating
-                        tap_text = (getattr(c, 'tap_ability_effect', None) or '')
-                        if isinstance(tap_text, dict):
-                            tap_text = str(tap_text)
-                        if tap_text and 'draw' in str(tap_text).lower():
-                            s += 6.0
-                        elif getattr(c, 'tap_ability_effect', None):
-                            s += 2.0
-                        # Upkeep effects = repeatable value engines
-                        if c.upkeep_effect: s += 3.0
-                        # Enchantment triggers
-                        if getattr(c, 'enchantment_trigger', None): s += 3.0
-                        
-                        # Role-based adjustments
-                        if role == 'control':
-                            if c.upkeep_effect: s += 2.0
-                            if c.is_creature and (c.power or 0) >= 4: s += 2.0
-                        elif role == 'aggro':
-                            if c.is_creature:
-                                s += (c.toughness or 0) * 0.5
-                                if c.has_lifelink: s += 3.0
-                                if c.has_first_strike: s += 1.0
-                        
-                        # Early-game toughness bonus
-                        if c.is_creature and game.turn_count <= 4:
-                            s += (c.toughness or 0) * 0.3
-                        
-                        # In Main 1, prioritize killing high-toughness blockers
-                        if c.is_creature and game.current_phase == 'Main 1' and role != 'control':
-                            s += (c.toughness or 0) * 0.2
-                        return s
+                        return self._score_threat(c, game, role)
                     best_threat = max(valid_targets, key=threat_score)
                     # Multi-spell sequencing: pick cheapest effective removal
-                    from engine.player import Player
-                    available_mana = player.available_mana(game) if hasattr(player, 'available_mana') else 0
                     affordable_removal = [a for a in removal_spells 
                                          if player.can_pay_cost(a['card'].cost, game)]
                     if affordable_removal:
@@ -698,18 +806,7 @@ class HeuristicAgent(BaseAgent):
                                               and a not in affordable_removal
                                               and a['card'].cost]
                             def removal_value(a):
-                                """Score removal spell value based on cost efficiency and effect type."""
-                                r_cmc = Player._parse_cmc(a['card'].cost) if a['card'].cost else 0
-                                remaining = available_mana - r_cmc
-                                followup_bonus = 0
-                                for other in other_castables:
-                                    other_cmc = Player._parse_cmc(other['card'].cost) if other['card'].cost else 0
-                                    if other_cmc <= remaining and other_cmc > 0:
-                                        followup_bonus = max(followup_bonus, 2.0)
-                                        break
-                                base = 1.0
-                                if getattr(a['card'], 'is_exile_removal', False): base = 1.5
-                                return base + followup_bonus
+                                return self._score_removal(a, available_mana, other_castables)
                             
                             best_removal = max(affordable_removal, key=removal_value)
                             game.log_event(f"  → {player.name}: announcing removal for {best_threat.name}")
@@ -754,91 +851,7 @@ class HeuristicAgent(BaseAgent):
                 available_mana = player.available_mana(game) if hasattr(player, 'available_mana') else 0
                 
                 def creature_priority(action):
-                    """Evaluate creature value for casting based on stats, keywords, and mana curve fit."""
-                    c = action['card']
-                    
-                    # CDA survival check: skip creatures that will immediately die
-                    # to state-based actions (0 or negative toughness from CDAs)
-                    cda = getattr(c, 'cda_type', '')
-                    if cda == 'deaths_shadow':
-                        # 13/13, gets -X/-X where X = your life
-                        effective_toughness = (c.base_toughness or 13) - player.life
-                        if effective_toughness <= 0:
-                            return -999  # DOA — don't cast
-                    elif cda == 'scourge_skyclaves':
-                        # P/T = 20 - highest life total
-                        highest_life = max(p.life for p in game.players)
-                        if 20 - highest_life <= 0:
-                            return -999
-                    
-                    score = (c.power or 0)
-                    if c.has_flying: score += 2
-                    if c.has_haste: score += 2
-                    if c.has_lifelink: score += 1.5
-                    if c.has_deathtouch: score += 1.5
-                    if c.has_trample: score += 1
-                    if c.has_first_strike or c.has_double_strike: score += 1.5
-                    if c.etb_effect: score += 2
-                    if c.has_menace: score += 1
-                    if c.has_prowess: score += 1.5
-                    if c.has_drawback: score -= 3
-                    if hasattr(c, 'static_effect') and c.static_effect: score += 3
-                    if hasattr(c, 'death_effect') and c.death_effect: score += 1.5
-                    if c.has_ward: score += 1
-                    if c.has_vigilance: score += 0.5
-                    if c.has_flash: score += 1
-                    if c.has_indestructible: score += 2
-                    if getattr(c, 'has_protection', False): score += 1.5
-                    if c.has_hexproof: score += 1
-                    if getattr(c, 'tap_ability_effect', None): score += 1.5
-                    if getattr(c, 'sacrifice_effect', None): score += 1
-                    if getattr(c, 'has_self_pump', False): score += 0.5
-                    score += getattr(c, 'self_pump_power', 0) * 0.5
-                    if getattr(c, 'broad_trigger', None): score += 1
-                    if c.attack_trigger: score += 1.5
-                    if c.combat_damage_trigger: score += 1
-                    if c.upkeep_effect: score += 1.5
-                    if getattr(c, 'enchantment_trigger', None): score += 1
-                    if c.landfall_effect: score += 1
-                    if c.has_undying or c.has_persist: score += 1
-                    
-                    # Artifact synergy — boost artifact creatures when
-                    # deck has artifact payoffs on board or in hand
-                    if 'Artifact' in (c.type_line or ''):
-                        artifact_count = self._count_artifacts(game, player)
-                        # Affinity for artifacts: lower effective cost
-                        if getattr(c, 'has_affinity', False):
-                            score += min(artifact_count, 4) * 1.5
-                        # Metalcraft bonus (3+ artifacts)
-                        if artifact_count >= 2:  # Will be 3 after deploying this
-                            score += 2.0
-                        # Generic artifact synergy: other artifacts on board
-                        if artifact_count >= 1:
-                            score += 1.0
-                    
-                    if role == 'aggro':
-                        if c.has_haste: score += 3.0
-                        if c.has_trample: score += 2.0
-                        if c.is_unblockable: score += 2.0
-                    elif role == 'control':
-                        if c.has_lifelink: score += 2.0
-                        if c.etb_effect: score += 2.0
-                        score += (c.toughness or 0) * 0.5
-                    
-                    actual_cost = c.cost
-                    if actual_cost and available_mana > 0:
-                        from engine.player import Player
-                        spell_cmc = Player._parse_cmc(actual_cost)
-                        if spell_cmc == available_mana: score += 3.0
-                        elif spell_cmc == available_mana - 1: score += 1.5
-                        elif available_mana > 3 and spell_cmc <= 1 and len(creatures) > 1: score -= 1.0
-                        # Kicker bonus: prefer casting with kicker when affordable
-                        if getattr(c, 'kicker_cost', ''):
-                            kicker_cmc = Player._parse_cmc(c.kicker_cost)
-                            if spell_cmc + kicker_cmc <= available_mana:
-                                score += 2.0  # Strong bonus for kicking
-                    
-                    return score
+                    return self._score_creature(action, game, player, role, available_mana, len(creatures))
                 creatures.sort(key=creature_priority, reverse=True)
                 # Filter out DOA creatures (scored -999)
                 creatures = [a for a in creatures if creature_priority(a) > -900]
@@ -852,20 +865,9 @@ class HeuristicAgent(BaseAgent):
         artifact_spells = [a for a in legal if a['type'] == 'announce_cast' and 
                           not a['card'].is_creature and 'Artifact' in (a['card'].type_line or '')]
         if artifact_spells:
-            from engine.player import Player
             artifact_count = self._count_artifacts(game, player)
-            # Prioritize 0-CMC artifacts and Equipment
             def artifact_score(a):
-                c = a['card']
-                s = 2.0  # Base artifact value
-                cmc = Player._parse_cmc(c.cost) if c.cost else 0
-                if cmc == 0: s += 5.0  # Free deployment = always good
-                if 'Equipment' in (c.type_line or ''): s += 3.0
-                if c.etb_effect: s += 2.0
-                if c.static_effect: s += 3.0
-                # Synergy with existing artifacts
-                if artifact_count >= 2: s += 2.0  # Metalcraft territory
-                return s
+                return self._score_artifact(a, artifact_count)
             artifact_spells.sort(key=artifact_score, reverse=True)
             best = artifact_spells[0]
             if artifact_score(best) > 3.0:  # Only if it's actually valuable
@@ -1020,17 +1022,7 @@ class HeuristicAgent(BaseAgent):
         if equip_actions:
             # Pick best equip target: prefer evasive creatures (flying/trample/menace)
             def equip_score(action):
-                """Score equip targets, prioritizing creatures with evasion or combat keywords."""
-                target = action.get('target')
-                if not target: return 0
-                s = (target.power or 0)
-                if target.has_flying: s += 3
-                if target.has_trample: s += 2
-                if target.has_menace: s += 2
-                if target.has_double_strike: s += 3
-                if target.has_deathtouch: s += 1
-                if target.has_lifelink: s += 1
-                return s
+                return self._score_equip_target(action)
             best_equip = max(equip_actions, key=equip_score)
             equip_name = best_equip.get('source', best_equip.get('card', None))
             equip_name = equip_name.name if equip_name else '?'
@@ -1070,21 +1062,10 @@ class HeuristicAgent(BaseAgent):
                 if lg_spells:
                     return lg_spells[0]
             # Otherwise cast the best curve-fit spell
-            from engine.player import Player
             available_mana = sum(1 for c in game.battlefield.cards 
                                if c.controller == player and c.is_land and not c.tapped)
             def spell_value(a):
-                """Score non-creature spells based on mana efficiency and card type impact."""
-                c = a['card']
-                cmc = Player._parse_cmc(c.cost) if c.cost else 0
-                # Prefer spells that use all our mana
-                mana_efficiency = 3.0 if cmc == available_mana else 1.5 if cmc == available_mana - 1 else 0
-                # Card type bonuses
-                bonus = 0
-                if c.is_creature: bonus += (c.power or 0) + (c.toughness or 0) * 0.3
-                if c.is_removal: bonus += 3
-                if c.etb_effect: bonus += 1
-                return mana_efficiency + bonus
+                return self._score_spell(a, available_mana)
             other_spells.sort(key=spell_value, reverse=True)
             return other_spells[0]
 
@@ -1092,7 +1073,6 @@ class HeuristicAgent(BaseAgent):
         cycle_actions = [a for a in legal if a['type'] == 'cycle']
         if cycle_actions:
             lands_in_play = sum(1 for c in game.battlefield.cards if c.controller == player and c.is_land)
-            from engine.player import Player
             hand_cmcs = [Player._parse_cmc(c.cost) for c in player.hand.cards if c.cost and not c.is_land]
             uncastable = sum(1 for cmc in hand_cmcs if cmc > lands_in_play + 1)
             

@@ -19,28 +19,34 @@
             border: 1px solid rgba(75, 85, 99, 0.4);
         }
     </style>
-<link href="https://cdn.jsdelivr.net/npm/mana-font@latest/css/mana.css" rel="stylesheet" type="text/css" />
+    <link href="https://cdn.jsdelivr.net/npm/mana-font@latest/css/mana.css" rel="stylesheet" type="text/css" />
 </head>
 
 <body class="min-h-screen text-gray-200">
 
-<!-- Persistent Navigation Header -->
-<nav class="bg-gray-900 border-b border-gray-800 sticky top-0 z-50 shadow-md">
-    <div class="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
-        <div class="flex items-center gap-6">
-            <a href="/" class="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 font-extrabold text-lg tracking-tight">🧬 MTG Genetic League</a>
-            <div class="hidden md:flex gap-4">
-                <a href="/" class="text-sm font-medium text-gray-300 hover:text-white transition-colors">Dashboard</a>
-                <a href="/matches" class="text-sm font-medium text-gray-300 hover:text-white transition-colors">Matches</a>
-                <a href="/admin/butterfly" class="text-sm font-medium text-gray-300 hover:text-white transition-colors">Admin Portal</a>
+    <!-- Persistent Navigation Header -->
+    <nav class="bg-gray-900 border-b border-gray-800 sticky top-0 z-50 shadow-md">
+        <div class="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+            <div class="flex items-center gap-6">
+                <a href="/"
+                    class="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 font-extrabold text-lg tracking-tight">🧬
+                    MTG Genetic League</a>
+                <div class="hidden md:flex gap-4">
+                    <a href="/"
+                        class="text-sm font-medium text-gray-300 hover:text-white transition-colors">Dashboard</a>
+                    <a href="/matches"
+                        class="text-sm font-medium text-gray-300 hover:text-white transition-colors">Matches</a>
+                    <a href="/admin/butterfly"
+                        class="text-sm font-medium text-gray-300 hover:text-white transition-colors">Admin Portal</a>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <div class="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]">
+                </div>
+                <span class="text-xs font-mono text-green-400">System Online</span>
             </div>
         </div>
-        <div class="flex items-center gap-3">
-            <div class="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]"></div>
-            <span class="text-xs font-mono text-green-400">System Online</span>
-        </div>
-    </div>
-</nav>
+    </nav>
 
     <div class="max-w-4xl mx-auto px-6 py-8">
 
@@ -52,35 +58,105 @@
             </span>
         </h1>
 
-        <!-- Match Summary -->
-        <div class="glass rounded-2xl p-6 mb-6">
-            <div class="flex flex-col md:flex-row justify-between items-center gap-4">
-                <div class="text-center flex-1">
-                    <a href="/deck/{{ match.d1_id }}" class="text-blue-400 hover:underline text-lg font-semibold">{{
-                        match.deck1_name }}</a>
+        <!-- Player Panels -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <!-- Player 1 -->
+            <div
+                class="glass rounded-2xl p-5 {% if match.winner_name == match.deck1_name %}border-2 border-green-500/40 shadow-[0_0_20px_rgba(34,197,94,0.15)]{% elif match.winner_name %}border-2 border-red-500/20{% endif %}">
+                <div class="flex justify-between items-start mb-3">
+                    <div>
+                        <div class="text-xs text-gray-400 uppercase tracking-wider mb-1">Player 1</div>
+                        <a href="/deck/{{ match.d1_id }}" class="text-lg font-bold text-blue-400 hover:underline">{{
+                            match.deck1_name }}</a>
+                    </div>
+                    {% if match.winner_name == match.deck1_name %}
+                    <span class="text-green-400 text-xl">🏆</span>
+                    {% endif %}
                 </div>
-                <div class="text-center">
-                    <span class="text-gray-500 text-2xl font-bold">vs</span>
-                </div>
-                <div class="text-center flex-1">
-                    <a href="/deck/{{ match.d2_id }}" class="text-blue-400 hover:underline text-lg font-semibold">{{
-                        match.deck2_name }}</a>
+                <div class="flex gap-4 text-sm">
+                    <div>
+                        <div class="text-xs text-gray-500">ELO</div>
+                        <div class="font-mono font-bold text-white">{{ "%.0f"|format(match.d1_elo or 0) }}</div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-500">Colors</div>
+                        <div class="text-lg mt-0.5">
+                            {% for c in (match.d1_colors or '') %}
+                            <i class="ms ms-{{ c|lower }} ms-cost ms-shadow text-sm"></i>
+                            {% endfor %}
+                            {% if not match.d1_colors %}<span class="text-gray-500 text-xs">Colorless</span>{% endif %}
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-500">Archetype</div>
+                        <div class="text-sm font-medium 
+                            {% if match.d1_archetype == 'Aggro' %}text-red-400
+                            {% elif match.d1_archetype == 'Control' %}text-blue-400
+                            {% elif match.d1_archetype == 'Combo' %}text-purple-400
+                            {% elif match.d1_archetype == 'Midrange' %}text-green-400
+                            {% else %}text-gray-400{% endif %}">
+                            {{ match.d1_archetype or 'Unknown' }}
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div class="text-center mt-4 space-y-1">
-                <div class="text-lg font-bold 
-                    {% if match.winner_name %}text-green-400{% else %}text-yellow-400{% endif %}">
-                    {% if match.winner_name %}
-                    🏆 Winner: {{ match.winner_name }}
-                    {% else %}
-                    🤝 Draw
+            <!-- Player 2 -->
+            <div
+                class="glass rounded-2xl p-5 {% if match.winner_name == match.deck2_name %}border-2 border-green-500/40 shadow-[0_0_20px_rgba(34,197,94,0.15)]{% elif match.winner_name %}border-2 border-red-500/20{% endif %}">
+                <div class="flex justify-between items-start mb-3">
+                    <div>
+                        <div class="text-xs text-gray-400 uppercase tracking-wider mb-1">Player 2</div>
+                        <a href="/deck/{{ match.d2_id }}" class="text-lg font-bold text-blue-400 hover:underline">{{
+                            match.deck2_name }}</a>
+                    </div>
+                    {% if match.winner_name == match.deck2_name %}
+                    <span class="text-green-400 text-xl">🏆</span>
                     {% endif %}
                 </div>
-                <div class="text-sm text-gray-500">
-                    {{ match.turns }} turns · {{ match.timestamp }}
+                <div class="flex gap-4 text-sm">
+                    <div>
+                        <div class="text-xs text-gray-500">ELO</div>
+                        <div class="font-mono font-bold text-white">{{ "%.0f"|format(match.d2_elo or 0) }}</div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-500">Colors</div>
+                        <div class="text-lg mt-0.5">
+                            {% for c in (match.d2_colors or '') %}
+                            <i class="ms ms-{{ c|lower }} ms-cost ms-shadow text-sm"></i>
+                            {% endfor %}
+                            {% if not match.d2_colors %}<span class="text-gray-500 text-xs">Colorless</span>{% endif %}
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-500">Archetype</div>
+                        <div class="text-sm font-medium 
+                            {% if match.d2_archetype == 'Aggro' %}text-red-400
+                            {% elif match.d2_archetype == 'Control' %}text-blue-400
+                            {% elif match.d2_archetype == 'Combo' %}text-purple-400
+                            {% elif match.d2_archetype == 'Midrange' %}text-green-400
+                            {% else %}text-gray-400{% endif %}">
+                            {{ match.d2_archetype or 'Unknown' }}
+                        </div>
+                    </div>
                 </div>
             </div>
+        </div>
+
+        <!-- Match Result Bar -->
+        <div class="glass rounded-xl p-3 mb-6 flex items-center justify-center gap-4 text-sm">
+            <div class="text-lg font-bold 
+                {% if match.winner_name %}text-green-400{% else %}text-yellow-400{% endif %}">
+                {% if match.winner_name %}
+                🏆 {{ match.winner_name }} wins
+                {% else %}
+                🤝 Draw
+                {% endif %}
+            </div>
+            <span class="text-gray-600">·</span>
+            <span class="text-gray-400 font-mono">{{ match.turns }} turns</span>
+            <span class="text-gray-600">·</span>
+            <span class="text-gray-500">{{ match.timestamp }}</span>
         </div>
 
         <!-- Game Log -->
@@ -88,10 +164,11 @@
             <h2 class="text-lg font-bold text-white mb-4">📜 Play-by-Play</h2>
 
             {% if game_log %}
-            <div class="space-y-1 font-mono text-sm max-h-[600px] overflow-y-auto">
+            <div class="space-y-0.5 font-mono text-sm max-h-[600px] overflow-y-auto pr-2">
                 {% for event in game_log %}
                 <div class="px-3 py-1.5 rounded 
-                    {% if 'RESULT:' in event %}bg-green-900/40 text-green-300 font-bold text-base
+                    {% if 'RESULT:' in event %}bg-green-900/40 text-green-300 font-bold text-base mt-2
+                    {% elif event.startswith('T') and ':' in event[:5] %}bg-indigo-900/30 text-indigo-300 font-semibold mt-3 border-l-2 border-indigo-500
                     {% elif 'attacks with' in event %}bg-red-900/20 text-red-300
                     {% elif 'deals' in event %}bg-orange-900/20 text-orange-300
                     {% elif 'casts' in event %}bg-blue-900/20 text-blue-300
@@ -109,18 +186,19 @@
 
     </div>
 
-<!-- Dev Footer -->
-<footer class="bg-gray-900 border-t border-gray-800 py-6 mt-12 w-full">
-    <div class="max-w-7xl mx-auto px-6 flex justify-between items-center text-xs text-gray-500">
-        <div>MTG Simulator Alpha v0.9 • 2026 Engine Rules 100% Core</div>
-        <div class="flex gap-4">
-            <a href="/admin/butterfly" class="hover:text-indigo-400 transition-colors flex items-center gap-1">
-                ⚙️ Admin Portal
-            </a>
-            <a href="https://github.com/MTGGeneticLeague" class="hover:text-white transition-colors" target="_blank">GitHub Repo</a>
+    <!-- Dev Footer -->
+    <footer class="bg-gray-900 border-t border-gray-800 py-6 mt-12 w-full">
+        <div class="max-w-7xl mx-auto px-6 flex justify-between items-center text-xs text-gray-500">
+            <div>MTG Simulator Alpha v0.9 • 2026 Engine Rules 100% Core</div>
+            <div class="flex gap-4">
+                <a href="/admin/butterfly" class="hover:text-indigo-400 transition-colors flex items-center gap-1">
+                    ⚙️ Admin Portal
+                </a>
+                <a href="https://github.com/MTGGeneticLeague" class="hover:text-white transition-colors"
+                    target="_blank">GitHub Repo</a>
+            </div>
         </div>
-    </div>
-</footer>
+    </footer>
 
 </body>
 

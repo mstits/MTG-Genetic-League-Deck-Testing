@@ -18,6 +18,7 @@ import random
 import os
 import logging
 from datetime import datetime
+from typing import Optional
 from data.db import get_db_connection, save_deck, update_card_stats
 from engine.game import Game
 from engine.player import Player
@@ -50,14 +51,14 @@ logger = logging.getLogger(__name__)
 
 class LeagueManager:
     """Manages the MTG competitive league, tracking ELO, divisions, matches, and deck evolution."""
-    def __init__(self):
+    def __init__(self) -> None:
         self.divisions = ["Provisional", "Bronze", "Silver", "Gold", "Mythic"]
         self.season_number = 1
         self.gauntlet = Gauntlet()
         self.gauntlet.deploy_bosses()
         self._load_card_pool()
         
-    def _load_card_pool(self):
+    def _load_card_pool(self) -> None:
         """Load the card pool once."""
         import os
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -73,7 +74,7 @@ class LeagueManager:
         self.card_pool = {c['name']: c for c in self.card_pool_list}
         inject_basic_lands(self.card_pool)
         
-    def _get_decks_in_division(self, division, limit=500):
+    def _get_decks_in_division(self, division: str, limit: int = 500) -> list[dict]:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -105,12 +106,12 @@ class LeagueManager:
         deck.elo = row.get('elo', 1200)
         return deck
 
-    def _make_card(self, data):
+    def _make_card(self, data: dict) -> 'Card':
         return dict_to_card(data)
 
-    def run_season(self, games_per_deck=4):
+    def run_season(self, games_per_deck: int = 4) -> None:
         """Run a full season of matches across all divisions using parallel workers."""
-        print(f"--- Season {self.season_number} ---")
+        logger.info("--- Season %d ---", self.season_number)
         
         # 1. Run Matches — parallel within each division
         total_matches = 0
@@ -133,16 +134,29 @@ class LeagueManager:
             
             num_matches = games_per_deck * len(decks_data) // 2
             
-            # Build match pairs
+            # Build match pairs using Swiss-style ELO-proximity pairing
             match_args = []
             
             from engine.format_validator import FormatValidator, LegalityError
             validator = FormatValidator(self.card_pool_list, "constructed")
             
+            # Sort decks by ELO with small random jitter for variety
+            sorted_decks = sorted(decks_data, key=lambda d: d['elo'] + random.uniform(-20, 20), reverse=True)
+            
             attempts = 0
+            pair_idx = 0
             while len(match_args) < num_matches and attempts < num_matches * 10:
                 attempts += 1
-                d1, d2 = random.sample(decks_data, 2)
+                # Swiss-style: pair adjacent ELO-ranked decks
+                if pair_idx + 1 < len(sorted_decks):
+                    d1 = sorted_decks[pair_idx]
+                    d2 = sorted_decks[pair_idx + 1]
+                    pair_idx = (pair_idx + 2) % max(len(sorted_decks) - 1, 1)
+                    # Re-shuffle with jitter periodically to avoid repeated pairings
+                    if pair_idx == 0:
+                        sorted_decks = sorted(decks_data, key=lambda d: d['elo'] + random.uniform(-20, 20), reverse=True)
+                else:
+                    d1, d2 = random.sample(decks_data, 2)
                 
                 try:
                     validator.validate_matchup(deck_cards[d1['id']], deck_cards[d2['id']])
@@ -174,7 +188,7 @@ class LeagueManager:
                         job = q.enqueue(run_match_task, d1_id, d2_id, d1_cards, d2_cards, self.season_number, job_timeout='5m')
                         jobs.append(job)
 
-                    print(f"  ⚡ Enqueued {len(jobs)} matches to Redis.", flush=True)
+                    logger.info("  ⚡ Enqueued %d matches to Redis.", len(jobs))
 
                     completed = 0
                     while completed < len(jobs):
@@ -216,7 +230,7 @@ class LeagueManager:
                             logger.warning("Match error D%s vs D%s: %s", d1_id, d2_id, e)
                     
                     if total_matches > 0:
-                        print(f"  🔧 Ran {total_matches} matches in-process (Redis unavailable).", flush=True)
+                        logger.info("  🔧 Ran %d matches in-process (Redis unavailable).", total_matches)
 
         # 2. Promotions
         self.resolve_promotions()
@@ -229,18 +243,18 @@ class LeagueManager:
         
         # Season summary
         wr = f"{total_decisive/total_matches*100:.0f}%" if total_matches > 0 else "N/A"
-        print(f"  ⚔️  {total_matches} matches | {wr} decisive | -{culled} culled | +{bred} bred")
+        logger.info("  ⚔️  %d matches | %s decisive | -%d culled | +%d bred", total_matches, wr, culled, bred)
         
         self.season_number += 1
 
-    def _db_to_deck_obj_by_id(self, deck_id, decks_data):
+    def _db_to_deck_obj_by_id(self, deck_id: int, decks_data: list[dict]) -> Optional[Deck]:
         """Find a deck in decks_data by id and convert to Deck object."""
         for d in decks_data:
             if d['id'] == deck_id:
                 return self._db_to_deck_obj(d)
         return None
 
-    def _generate_virtual_sideboard(self, deck):
+    def _generate_virtual_sideboard(self, deck: Deck) -> list:
         """Generate a 15-card heuristic sideboard based on deck colors."""
         from engine.card_builder import dict_to_card
         
@@ -278,7 +292,7 @@ class LeagueManager:
             virtual_sb.append(dict_to_card(c))
         return virtual_sb
 
-    def run_match(self, deck1, deck2) -> int:
+    def run_match(self, deck1: Deck, deck2: Deck) -> Optional[int]:
         """Run a Best-of-3 match with sideboard swapping, return winner_id or None for draw."""
         try:
             # Check for upset condition *before* the match so we know to capture snapshots
@@ -295,10 +309,10 @@ class LeagueManager:
             # If d2 is much higher ELO, and d1 might win, track d2's decisions. (And vice versa)
             track_snapshots = False
             track_high_elo_idx = -1
-            if elo2 - elo1 > 100:
+            if elo2 - elo1 > 50:
                 track_snapshots = True
                 track_high_elo_idx = 1
-            elif elo1 - elo2 > 100:
+            elif elo1 - elo2 > 50:
                 track_snapshots = True
                 track_high_elo_idx = 0
                 
@@ -434,11 +448,10 @@ class LeagueManager:
             return winner_id
                 
         except Exception as e:
-            import traceback
-            traceback.print_exc()
+            logger.exception("Match error D%s vs D%s", deck1.db_id, deck2.db_id)
             return None
     
-    def _save_match_log(self, log_lines):
+    def _save_match_log(self, log_lines: list[str]) -> str:
         """Write detailed match log to file."""
         log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs', 'matches')
         os.makedirs(log_dir, exist_ok=True)
@@ -452,9 +465,13 @@ class LeagueManager:
         
         return filepath
 
-    def update_match_result(self, id1, id2, winner_id, turns, game_log=None, log_path=None, 
-                            game1_winner_id=None, d1_play_wins=0, d1_draw_wins=0, d2_play_wins=0, d2_draw_wins=0,
-                            sideboard_plans=None, p1_mulligans=0, p2_mulligans=0):
+    def update_match_result(self, id1: int, id2: int, winner_id: Optional[int], turns: int,
+                            game_log: Optional[list] = None, log_path: Optional[str] = None,
+                            game1_winner_id: Optional[int] = None,
+                            d1_play_wins: int = 0, d1_draw_wins: int = 0,
+                            d2_play_wins: int = 0, d2_draw_wins: int = 0,
+                            sideboard_plans: Optional[list[dict]] = None,
+                            p1_mulligans: int = 0, p2_mulligans: int = 0) -> None:
         """Update database with match outcome, process ELO changes, and track deck/card statistics."""
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -497,10 +514,9 @@ class LeagueManager:
             cursor.execute('SELECT elo FROM decks WHERE id = %s', (id2,))
             elo2 = cursor.fetchone()['elo']
             
-            r1 = 10 ** (elo1 / 400)
-            r2 = 10 ** (elo2 / 400)
-            e1 = r1 / (r1 + r2)
-            e2 = r2 / (r1 + r2)
+            # Standard ELO expected score formula (numerically stable)
+            e1 = 1.0 / (1.0 + 10 ** ((elo2 - elo1) / 400.0))
+            e2 = 1.0 - e1
             
             if winner_id is None:
                 s1, s2 = 0.5, 0.5
@@ -552,7 +568,7 @@ class LeagueManager:
                     cursor.execute('UPDATE decks SET active=FALSE WHERE id=%s', (v['id'],))
                 
                 if victims:
-                    print(f"  ☠️  Retired {len(victims)} decks (worst Elo: {victims[0]['elo']:.0f})")
+                    logger.info("  ☠️  Retired %d decks (worst Elo: %.0f)", len(victims), victims[0]['elo'])
                 
             conn.commit()
             return len(victims)
@@ -631,11 +647,11 @@ class LeagueManager:
                     save_deck(deck_name, card_map, generation=self.season_number, 
                              parent_ids=[champ['id']], colors=colors, archetype=archetype)
                     bred += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Breeding error from champion %s: %s", champ.get('name', '?'), e)
         
         if bred > 0:
-            print(f"  🧬 Bred {bred} offspring from top {len(champions)} champions")
+            logger.info("  🧬 Bred %d offspring from top %d champions", bred, len(champions))
         
         # Inject wild cards for genetic diversity across random color combos
         wild_bred = 0
@@ -652,15 +668,15 @@ class LeagueManager:
                 deck_name = f"Wild-{colors}-S{self.season_number}-{random.randint(0,9999)}"
                 save_deck(deck_name, card_map, generation=self.season_number, colors=colors)
                 wild_bred += 1
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Wild card generation error for %s: %s", colors, e)
         
         if wild_bred > 0:
-            print(f"  🎲 {wild_bred} wild cards injected")
+            logger.info("  🎲 %d wild cards injected", wild_bred)
         
         return bred + wild_bred
 
-    def resolve_promotions(self):
+    def resolve_promotions(self) -> None:
         for i in range(len(self.divisions) - 1):
             lower_div = self.divisions[i]
             upper_div = self.divisions[i+1]
@@ -675,7 +691,7 @@ class LeagueManager:
             promoted = []
             
             if upper_div == "Mythic":
-                print(f"  🏆 Boss Battles: {len(candidates)} challengers")
+                logger.info("  🏆 Boss Battles: %d challengers", len(candidates))
                 with get_db_connection() as conn:
                     with conn.cursor() as cursor:
                         cursor.execute("SELECT * FROM decks WHERE division='Mythic' AND name LIKE 'BOSS:%%'")
@@ -715,10 +731,10 @@ class LeagueManager:
                                 logger.warning("Game error during promotion: %s", e)
                         
                         if wins >= 2:
-                            print(f"    ✅ {cand['name']} beat {boss['name']} ({wins}/3)!")
+                            logger.info("    ✅ %s beat %s (%d/3)!", cand['name'], boss['name'], wins)
                             promoted.append(cand)
                         else:
-                            print(f"    ❌ {cand['name']} lost to {boss['name']} ({wins}/3)")
+                            logger.info("    ❌ %s lost to %s (%d/3)", cand['name'], boss['name'], wins)
             else:
                 promoted = candidates
             
@@ -733,9 +749,9 @@ class LeagueManager:
                 with conn.cursor() as cursor:
                     for d in promoted:
                         cursor.execute('UPDATE decks SET division = %s WHERE id = %s', (upper_div, d['id']))
-                        print(f"  ⬆️  {d['name']} → {upper_div}")
+                        logger.info("  ⬆️  %s → %s", d['name'], upper_div)
                         
                     for d in relegated:
                         cursor.execute('UPDATE decks SET division = %s WHERE id = %s', (lower_div, d['id']))
-                        print(f"  ⬇️  {d['name']} → {lower_div}")
+                        logger.info("  ⬇️  %s → %s", d['name'], lower_div)
                 conn.commit()

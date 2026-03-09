@@ -24,9 +24,9 @@ The MTG Genetic League evolves decks through natural selection — populations o
 |:-:|:-:|
 | ![Dashboard](docs/images/dashboard.png) | ![Meta Analysis](docs/images/meta_trends.png) |
 
-| Deck Detail |
-|:-:|
-| ![Deck Detail](docs/images/deck_detail.png) |
+| Deck Detail | Test Your Deck |
+|:-:|:-:|
+| ![Deck Detail](docs/images/deck_detail.png) | ![Test Your Deck](docs/images/test_deck.png) |
 
 > **New here?** Check out the **[Getting Started Guide](docs/GETTING_STARTED.md)** for a walkthrough of every feature.
 

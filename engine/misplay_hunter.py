@@ -32,10 +32,10 @@ class MisplayHunter:
                 json.dump([], f)
                 
     def detect_upset(self, elo1: float, elo2: float, winner_idx: int) -> bool:
-        """Trigger analysis if the lower-ELO deck won by a margin of > 100."""
-        if winner_idx == 0 and elo2 - elo1 > 100:
+        """Trigger analysis if the lower-ELO deck won by a margin of > 50."""
+        if winner_idx == 0 and elo2 - elo1 > 50:
             return True
-        if winner_idx == 1 and elo1 - elo2 > 100:
+        if winner_idx == 1 and elo1 - elo2 > 50:
             return True
         return False
         

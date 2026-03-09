@@ -33,20 +33,54 @@ import uvicorn
 import os
 import json
 import re
+import logging
 import html as html_mod  # For escaping DB values in HTML responses
 from data.db import get_db_connection, get_top_cards
 from starlette.responses import JSONResponse
 
 app = FastAPI(title="MTG Genetic League", description="AI-powered deck evolution dashboard")
 
-# CORS — allow dashboard to be accessed from any origin (restrict for production)
+logger = logging.getLogger(__name__)
+
+# CORS — restricted to known origins (production-safe)
 from starlette.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*", "http://localhost:3000"],  # Next.js dev server
+    allow_origins=["http://localhost:8000", "http://localhost:3000"],
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+# ─── Module-Level Card Pool Cache ─────────────────────────────────────────────
+_card_pool_cache = None
+
+def _get_card_pool():
+    """Load card pool once and cache at module level. Thread-safe via GIL."""
+    global _card_pool_cache
+    if _card_pool_cache is not None:
+        return _card_pool_cache
+    
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cp_path = os.path.join(base, 'data', 'legal_cards.json')
+    if not os.path.exists(cp_path):
+        cp_path = os.path.join(base, 'data', 'processed_cards.json')
+    
+    card_pool = {}
+    with open(cp_path) as f:
+        for c in json.load(f):
+            name = c.get('name', '')
+            card_pool[name] = c
+            if ' // ' in name:
+                front_face = name.split(' // ')[0].strip()
+                if front_face not in card_pool:
+                    card_pool[front_face] = c
+    
+    from engine.card_builder import inject_basic_lands
+    inject_basic_lands(card_pool)
+    
+    _card_pool_cache = card_pool
+    logger.info("Card pool cached: %d cards", len(card_pool))
+    return card_pool
 
 
 # ─── WebSocket: Real-Time ELO Streaming ──────────────────────────────────────
@@ -259,6 +293,8 @@ async def get_leaderboard(request: Request):
         card_pool_dict = {c['name']: c for c in cache} if isinstance(cache, list) else cache
         arch_info = classify_deck(decklist, card_pool_dict)
         arch_emoji = {"Aggro": "🗡️", "Control": "🛡️", "Combo": "⚡", "Midrange": "⚖️"}.get(arch_info['archetype'], "")
+        arch_cls = {"Aggro": "text-red-400", "Control": "text-blue-400", "Combo": "text-purple-400", "Midrange": "text-green-400"}.get(arch_info['archetype'], "text-gray-400")
+        arch_label = arch_info['archetype']
         
         # Row background based on rank
         if i < 3:
@@ -273,6 +309,7 @@ async def get_leaderboard(request: Request):
             <td class="p-3 text-gray-500">{i+1}</td>
             <td class="p-3 {name_cls}">{arch_emoji} {safe_name}</td>
             <td class="p-3">{color_badges}</td>
+            <td class="p-3 text-sm {arch_cls} font-medium">{arch_label}</td>
             <td class="p-3 text-center font-bold text-gray-300">🧂 {bracket}</td>
             <td class="p-3"><span class="px-2 py-1 rounded-full text-xs {div_cls}">{safe_div}</span></td>
             <td class="p-3 font-mono font-bold text-white">{d['elo']:.0f}</td>
@@ -585,6 +622,287 @@ async def get_meta(request: Request):
         """
     
     html += "</tbody></table>"
+    
+    # --- Matchup Matrix Heatmap ---
+    # Get color vs color win rates from match data
+    with get_db_connection() as conn2:
+        cursor2 = conn2.cursor()
+        cursor2.execute('''
+            SELECT d1.colors as row_colors, d2.colors as col_colors,
+                   COUNT(*) as total,
+                   SUM(CASE WHEN m.winner_id = m.deck1_id THEN 1 ELSE 0 END) as row_wins
+            FROM matches m
+            JOIN decks d1 ON m.deck1_id = d1.id
+            JOIN decks d2 ON m.deck2_id = d2.id
+            WHERE d1.colors != '' AND d2.colors != ''
+                  AND m.winner_id IS NOT NULL
+            GROUP BY d1.colors, d2.colors
+            HAVING COUNT(*) >= 10
+        ''')
+        matrix_data = [dict(row) for row in cursor2.fetchall()]
+    
+    if matrix_data:
+        # Build the matrix
+        all_colors = set()
+        for md in matrix_data:
+            all_colors.add(md['row_colors'])
+            all_colors.add(md['col_colors'])
+        
+        # Sort by single colors first, then multi-color
+        sorted_colors = sorted(all_colors, key=lambda c: (len(c), c))
+        # Limit to top 10 for readability
+        if len(sorted_colors) > 10:
+            # Keep the ones with most match data
+            color_totals = {}
+            for md in matrix_data:
+                color_totals[md['row_colors']] = color_totals.get(md['row_colors'], 0) + md['total']
+                color_totals[md['col_colors']] = color_totals.get(md['col_colors'], 0) + md['total']
+            sorted_colors = sorted(all_colors, key=lambda c: color_totals.get(c, 0), reverse=True)[:10]
+        
+        # Build lookup
+        matrix = {}
+        for md in matrix_data:
+            if md['row_colors'] in sorted_colors and md['col_colors'] in sorted_colors:
+                matrix[(md['row_colors'], md['col_colors'])] = md
+        
+        def color_badges_small(colors_str):
+            if not colors_str:
+                return '<i class="ms ms-c ms-cost text-xs"></i>'
+            return ''.join(f'<i class="ms ms-{c.lower()} ms-cost text-xs"></i>' for c in colors_str)
+        
+        html += """
+        <h3 class="text-lg font-bold text-white mb-3 mt-8">🎯 Matchup Matrix</h3>
+        <p class="text-xs text-gray-400 mb-3">Win rate of row color vs column color (10+ matches required)</p>
+        <div class="overflow-x-auto">
+            <table class="text-xs">
+                <thead><tr>
+                    <th class="p-1.5"></th>
+        """
+        
+        for c in sorted_colors:
+            html += f'<th class="p-1.5 text-center min-w-[50px]">{color_badges_small(c)}</th>'
+        
+        html += "</tr></thead><tbody>"
+        
+        for rc in sorted_colors:
+            html += f'<tr><td class="p-1.5 font-medium text-right pr-2">{color_badges_small(rc)}</td>'
+            
+            for cc in sorted_colors:
+                entry = matrix.get((rc, cc))
+                if entry and entry['total'] > 0:
+                    wr = entry['row_wins'] / entry['total'] * 100
+                    # Color: green >55%, yellow 45-55%, red <45%
+                    if wr >= 55:
+                        bg = f'rgba(34,197,94,{min(0.15 + (wr - 55) * 0.015, 0.6)})'
+                        text_cls = 'text-green-300'
+                    elif wr >= 45:
+                        bg = 'rgba(234,179,8,0.15)'
+                        text_cls = 'text-yellow-300'
+                    else:
+                        bg = f'rgba(239,68,68,{min(0.15 + (45 - wr) * 0.015, 0.6)})'
+                        text_cls = 'text-red-300'
+                    
+                    html += f'<td class="p-1.5 text-center font-mono {text_cls}" style="background:{bg};border:1px solid rgba(55,65,81,0.3);border-radius:4px">{wr:.0f}%</td>'
+                elif rc == cc:
+                    html += '<td class="p-1.5 text-center text-gray-600" style="background:rgba(55,65,81,0.2);border:1px solid rgba(55,65,81,0.3);border-radius:4px">—</td>'
+                else:
+                    html += '<td class="p-1.5 text-center text-gray-600" style="border:1px solid rgba(55,65,81,0.15);border-radius:4px"></td>'
+            
+            html += '</tr>'
+        
+        html += "</tbody></table></div>"
+    
+    # --- Win Rate by Archetype ---
+    with get_db_connection() as conn3:
+        cursor3 = conn3.cursor()
+        cursor3.execute('''
+            SELECT archetype, COUNT(*) as count,
+                   SUM(wins) as total_wins, SUM(losses) as total_losses,
+                   ROUND(AVG(elo)) as avg_elo
+            FROM decks
+            WHERE active=1 AND archetype IS NOT NULL AND archetype != '' AND archetype != 'Unknown'
+            GROUP BY archetype
+            ORDER BY AVG(elo) DESC
+        ''')
+        archetype_stats = [dict(row) for row in cursor3.fetchall()]
+    
+    if archetype_stats:
+        archetype_icons = {
+            'Aggro': '⚔️', 'Control': '🛡️', 'Combo': '✨',
+            'Midrange': '⚖️', 'Tempo': '💨', 'Ramp': '🌳'
+        }
+        archetype_colors = {
+            'Aggro': '#ef4444', 'Control': '#3b82f6', 'Combo': '#a855f7',
+            'Midrange': '#eab308', 'Tempo': '#06b6d4', 'Ramp': '#22c55e'
+        }
+        
+        html += """
+        <h3 class="text-lg font-bold text-white mb-3 mt-8">🏹 Win Rate by Archetype</h3>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        """
+        
+        # Bar chart side
+        html += '<div class="bg-gray-800/50 rounded-xl p-5 border border-gray-700">'
+        
+        max_arch_count = max(a['count'] for a in archetype_stats) if archetype_stats else 1
+        for arch in archetype_stats:
+            total = arch['total_wins'] + arch['total_losses']
+            wr_pct = arch['total_wins'] / total * 100 if total > 0 else 0
+            bar_color = archetype_colors.get(arch['archetype'], '#6366f1')
+            icon = archetype_icons.get(arch['archetype'], '📦')
+            bar_width = arch['count'] / max_arch_count * 100
+            
+            if wr_pct >= 55:
+                wr_color = '#22c55e'
+            elif wr_pct >= 45:
+                wr_color = '#eab308'
+            else:
+                wr_color = '#ef4444'
+            
+            html += f"""
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-28 flex-shrink-0 text-right">
+                        <span class="text-sm">{icon}</span>
+                        <span class="text-sm font-semibold text-gray-200">{arch['archetype']}</span>
+                    </div>
+                    <div class="flex-1 relative">
+                        <div class="w-full bg-gray-700/40 rounded-full h-7 overflow-hidden">
+                            <div class="h-full rounded-full transition-all duration-500 flex items-center justify-end px-2"
+                                 style="width:{wr_pct}%;background:linear-gradient(90deg,{bar_color}cc,{bar_color}66)">
+                                <span class="text-xs font-bold text-white drop-shadow-md">{wr_pct:.1f}%</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="w-16 text-right text-xs text-gray-400 font-mono">{arch['count']} decks</div>
+                </div>
+            """
+        
+        html += '</div>'
+        
+        # Detailed stats table side
+        html += """
+        <div class="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
+            <table class="w-full text-sm">
+                <thead><tr class="text-gray-400 text-xs uppercase border-b border-gray-700">
+                    <th class="p-2 text-left">Archetype</th>
+                    <th class="p-2 text-left">Decks</th>
+                    <th class="p-2 text-left">Avg Elo</th>
+                    <th class="p-2 text-left">Record</th>
+                    <th class="p-2 text-left">Win%</th>
+                </tr></thead>
+                <tbody>
+        """
+        
+        for arch in archetype_stats:
+            total = arch['total_wins'] + arch['total_losses']
+            wr = f"{arch['total_wins']/total*100:.1f}%" if total > 0 else "—"
+            icon = archetype_icons.get(arch['archetype'], '📦')
+            bar_color = archetype_colors.get(arch['archetype'], '#6366f1')
+            
+            html += f"""
+            <tr class="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
+                <td class="p-2"><span class="mr-1">{icon}</span><span class="text-gray-200 font-medium">{arch['archetype']}</span></td>
+                <td class="p-2 text-gray-300">{arch['count']}</td>
+                <td class="p-2 font-mono text-white">{arch['avg_elo']:.0f}</td>
+                <td class="p-2 text-gray-400 font-mono">{arch['total_wins']}W-{arch['total_losses']}L</td>
+                <td class="p-2 font-mono font-bold" style="color:{bar_color}">{wr}</td>
+            </tr>
+            """
+        
+        html += "</tbody></table></div></div>"
+    
+    # --- Archetype Distribution by Season ---
+    with get_db_connection() as conn4:
+        cursor4 = conn4.cursor()
+        cursor4.execute('''
+            SELECT m.season_id, d.archetype,
+                   COUNT(*) as appearances,
+                   SUM(CASE WHEN m.winner_id = m.deck1_id THEN 1 ELSE 0 END) as wins
+            FROM matches m
+            JOIN decks d ON m.deck1_id = d.id
+            WHERE d.archetype IS NOT NULL AND d.archetype != '' AND d.archetype != 'Unknown'
+                  AND m.season_id IS NOT NULL
+            GROUP BY m.season_id, d.archetype
+            ORDER BY m.season_id DESC
+        ''')
+        season_arch_data = [dict(row) for row in cursor4.fetchall()]
+    
+    if season_arch_data:
+        # Group by season
+        seasons = {}
+        for row in season_arch_data:
+            sid = row['season_id']
+            if sid not in seasons:
+                seasons[sid] = {}
+            seasons[sid][row['archetype']] = {
+                'count': row['appearances'],
+                'wins': row['wins']
+            }
+        
+        # Get all archetypes across all seasons
+        all_archetypes = sorted(set(r['archetype'] for r in season_arch_data))
+        archetype_icons = {
+            'Aggro': '⚔️', 'Control': '🛡️', 'Combo': '✨',
+            'Midrange': '⚖️', 'Tempo': '💨', 'Ramp': '🌳'
+        }
+        archetype_colors = {
+            'Aggro': '#ef4444', 'Control': '#3b82f6', 'Combo': '#a855f7',
+            'Midrange': '#eab308', 'Tempo': '#06b6d4', 'Ramp': '#22c55e'
+        }
+        
+        sorted_seasons = sorted(seasons.keys(), reverse=True)
+        
+        html += """
+        <h3 class="text-lg font-bold text-white mb-3 mt-8">📈 Archetype by Season</h3>
+        <p class="text-xs text-gray-400 mb-3">Archetype representation and win rates across seasons (scroll to see history)</p>
+        <div class="bg-gray-800/50 rounded-xl p-5 border border-gray-700 max-h-[500px] overflow-y-auto">
+            <table class="w-full text-sm">
+                <thead class="sticky top-0 bg-gray-800 z-10"><tr class="text-gray-400 text-xs uppercase border-b border-gray-700">
+                    <th class="p-2 text-left">Season</th>
+        """
+        
+        for arch in all_archetypes:
+            icon = archetype_icons.get(arch, '📦')
+            html += f'<th class="p-2 text-center">{icon} {arch}</th>'
+        
+        html += '<th class="p-2 text-center">Total</th>'
+        html += "</tr></thead><tbody>"
+        
+        for sid in sorted_seasons:
+            season_data = seasons[sid]
+            total_in_season = sum(v['count'] for v in season_data.values())
+            
+            html += f'<tr class="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">'
+            html += f'<td class="p-2 font-mono text-purple-400 font-bold">S{sid}</td>'
+            
+            for arch in all_archetypes:
+                if arch in season_data:
+                    count = season_data[arch]['count']
+                    wins = season_data[arch]['wins']
+                    pct = count / total_in_season * 100 if total_in_season > 0 else 0
+                    wr = wins / count * 100 if count > 0 else 0
+                    color = archetype_colors.get(arch, '#6366f1')
+                    
+                    # Mini percentage bar
+                    html += f"""
+                    <td class="p-2 text-center">
+                        <div class="flex flex-col items-center">
+                            <div class="w-full bg-gray-700/40 rounded-full h-3 mb-0.5 overflow-hidden">
+                                <div class="h-full rounded-full" style="width:{pct}%;background:{color}88"></div>
+                            </div>
+                            <span class="text-xs text-gray-300">{count} <span class="text-gray-500">({pct:.0f}%)</span></span>
+                            <span class="text-[10px] {'text-green-400' if wr >= 50 else 'text-red-400'}">{wr:.0f}% WR</span>
+                        </div>
+                    </td>
+                    """
+                else:
+                    html += '<td class="p-2 text-center text-gray-600">—</td>'
+            
+            html += f'<td class="p-2 text-center font-mono text-gray-400">{total_in_season}</td>'
+            html += '</tr>'
+        
+        html += "</tbody></table></div>"
+    
     return html
 
 @app.get("/api/match-history", response_class=HTMLResponse)
@@ -617,12 +935,17 @@ async def get_match_history(request: Request):
         html += f"""
         <tr class="border-b border-gray-700 hover:bg-gray-700/50 transition-colors cursor-pointer" onclick="window.location.href='/match/{m['id']}'">
             <td class="p-3">
-                <a href="/deck/{m['d1_id']}" class="text-blue-400 hover:underline">{safe_d1}</a>
+                <a href="/deck/{m['d1_id']}" class="text-blue-400 hover:underline" onclick="event.stopPropagation()">{safe_d1}</a>
                 <span class="text-gray-500 mx-1">vs</span>
-                <a href="/deck/{m['d2_id']}" class="text-blue-400 hover:underline">{safe_d2}</a>
+                <a href="/deck/{m['d2_id']}" class="text-blue-400 hover:underline" onclick="event.stopPropagation()">{safe_d2}</a>
             </td>
             <td class="p-3 font-medium {w_cls}">{safe_winner}</td>
             <td class="p-3 text-sm text-gray-500">T{m['turns']}</td>
+            <td class="p-3 text-center">
+                <a href="/match/{m['id']}" class="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-900/40 hover:bg-indigo-900/60 border border-indigo-700/50 rounded-lg text-indigo-300 text-xs font-medium transition-colors" onclick="event.stopPropagation()">
+                    📜 View
+                </a>
+            </td>
         </tr>
         """
     return html
@@ -881,8 +1204,8 @@ async def view_match(request: Request, match_id: int):
         cursor = conn.cursor()
         cursor.execute('''
             SELECT m.*, 
-                   d1.name AS deck1_name, d1.id AS d1_id,
-                   d2.name AS deck2_name, d2.id AS d2_id,
+                   d1.name AS deck1_name, d1.id AS d1_id, d1.elo AS d1_elo, d1.colors AS d1_colors, d1.archetype AS d1_archetype,
+                   d2.name AS deck2_name, d2.id AS d2_id, d2.elo AS d2_elo, d2.colors AS d2_colors, d2.archetype AS d2_archetype,
                    w.name AS winner_name
             FROM matches m
             JOIN decks d1 ON m.deck1_id = d1.id
@@ -1035,26 +1358,10 @@ async def test_deck(request: Request):
         
         total_cards = sum(cards.values())
         
-        # Load card pool — use legal_cards.json (has basic lands)
-        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        cp_path = os.path.join(base, 'data', 'legal_cards.json')
-        if not os.path.exists(cp_path):
-            cp_path = os.path.join(base, 'data', 'processed_cards.json')
-        
-        card_pool = {}
-        with open(cp_path) as f:
-            for c in json.load(f):
-                name = c.get('name', '')
-                card_pool[name] = c
-                if ' // ' in name:
-                    front_face = name.split(' // ')[0].strip()
-                    if front_face not in card_pool:
-                        card_pool[front_face] = c
+        # Load card pool from module-level cache
+        card_pool = _get_card_pool()
         
         # Validate cards
-        from engine.card_builder import inject_basic_lands
-        inject_basic_lands(card_pool)
-        
         valid = {}
         invalid = []
         for name, count in cards.items():
@@ -1102,7 +1409,7 @@ async def test_deck(request: Request):
         from concurrent.futures import ThreadPoolExecutor, as_completed
         
         def run_matchup(opp):
-            """Run a Bo3 matchup against one opponent. Thread-safe (each creates its own game)."""
+            """Run a Bo3 matchup against one opponent. Thread-safe: builds a fresh deck per thread."""
             try:
                 opp_cards = json.loads(opp['card_list'])
                 if isinstance(opp_cards, list):
@@ -1111,14 +1418,17 @@ async def test_deck(request: Request):
                     opp_cards = c
                 opp_deck = make_deck(opp_cards)
             except Exception as e:
-                print(f"Skipping opponent '{opp['name']}' due to deck error: {e}")
+                logger.warning("Skipping opponent '%s' due to deck error: %s", opp['name'], e)
                 return None
+            
+            # Build a fresh user deck per thread to avoid data races
+            thread_user_deck = make_deck(valid)
             
             w, l, d = 0, 0, 0
             turns_list = []
             for _ in range(3):
                 try:
-                    p1 = Player("UserDeck", user_deck)
+                    p1 = Player("UserDeck", thread_user_deck)
                     p2 = Player(opp['name'], opp_deck)
                     game = Game([p1, p2])
                     runner = SimulationRunner(game, [HeuristicAgent(), HeuristicAgent()])
@@ -1133,7 +1443,7 @@ async def test_deck(request: Request):
                     if w >= 2 or l >= 2:
                         break
                 except Exception as e:
-                    print(f"Simulation failed vs {opp['name']}: {e}")
+                    logger.warning("Simulation failed vs %s: %s", opp['name'], e)
                     d += 1
             
             match_result = "Win" if w > l else "Loss" if l > w else "Draw"
@@ -1167,6 +1477,28 @@ async def test_deck(request: Request):
         
         total_played = total_wins + total_losses + total_draws
         win_rate = round(total_wins / max(total_played, 1) * 100, 1)
+        grade = "S" if win_rate >= 80 else "A" if win_rate >= 60 else "B" if win_rate >= 40 else "C" if win_rate >= 20 else "D"
+        
+        # Enroll the deck into competitive play
+        enrolled_id = None
+        try:
+            # Derive colors from the card pool data
+            deck_colors = set()
+            for name in valid:
+                cd = card_pool.get(name, {})
+                for c in cd.get('color_identity', []):
+                    deck_colors.add(c)
+            colors_str = ''.join(sorted(deck_colors, key=lambda c: 'WUBRG'.index(c) if c in 'WUBRG' else 99))
+            
+            import hashlib
+            deck_hash = hashlib.md5(json.dumps(valid, sort_keys=True).encode()).hexdigest()[:4]
+            deck_name = f"User-{colors_str or 'C'}-{deck_hash}"
+            
+            from data.db import save_deck
+            enrolled_id = save_deck(deck_name, valid, generation=0, colors=colors_str)
+            print(f"✅ Enrolled test deck as '{deck_name}' (ID: {enrolled_id})")
+        except Exception as enroll_err:
+            print(f"⚠️ Failed to enroll deck: {enroll_err}")
         
         return JSONResponse({
             "cards_submitted": total_cards,
@@ -1175,13 +1507,13 @@ async def test_deck(request: Request):
             "win_rate": win_rate,
             "record": f"{total_wins}W-{total_losses}L-{total_draws}D",
             "matchups": results,
-            "grade": "S" if win_rate >= 80 else "A" if win_rate >= 60 else "B" if win_rate >= 40 else "C" if win_rate >= 20 else "D"
+            "grade": grade,
+            "enrolled_id": enrolled_id,
+            "enrolled_name": deck_name if enrolled_id else None
         })
     except Exception as e:
-        with open("crash.log", "a") as f:
-            f.write(f"\nCRASH at {request.url.path}:\n")
-            traceback.print_exc(file=f)
-        return JSONResponse({"error": f"Internal Server Error: {str(e)}"}, status_code=500)
+        logger.exception("Unhandled error in %s", request.url.path)
+        return JSONResponse({"error": "Internal server error. Please try again."}, status_code=500)
 
 
 @app.post("/api/flex-test")
@@ -1701,36 +2033,32 @@ async def view_lineage(request: Request, deck_id: int):
             nodes[c_id]['type'] = 'child' # Override if existed as ancestor (loop?)
             edges.add((deck_id, c_id))
 
-        # 5. Generate Mermaid String
-        graph_def = []
+        # 5. Build JSON data for Cytoscape.js
+        cy_nodes = []
         for n_id, data in nodes.items():
-            # Clean name for ID safe string
-            safe_id = f"D{n_id}"
-            label = f"{data['name']}<br/>Gen {data['gen']} | {data['elo']:.0f} Elo"
-            
-            # Apply style class
-            style = "class"
-            if data['type'] == 'current': style += " current"
-            elif data['type'] == 'ancestor': style += " ancestor"
-            elif data['type'] == 'child': style += " child"
-            
-            if "BOSS" in data['name']: style = "class boss"
-            
-            graph_def.append(f'{safe_id}("{label}")')
-            graph_def.append(f'class {safe_id} {data["type"]}')
-            
-            # Click link
-            graph_def.append(f'click {safe_id} "/deck/{n_id}" "View Deck"')
-
+            node_type = data['type']
+            if 'BOSS' in data['name']:
+                node_type = 'boss'
+            cy_nodes.append({
+                'id': str(n_id),
+                'label': data['name'],
+                'elo': round(data['elo']),
+                'gen': data['gen'],
+                'type': node_type
+            })
+        
+        cy_edges = []
         for src, dst in edges:
-            graph_def.append(f"D{src} --> D{dst}")
-
-        mermaid_str = "\n".join(graph_def)
+            cy_edges.append({'source': str(src), 'target': str(dst)})
+        
+        no_lineage = len(nodes) <= 1 and len(edges) == 0
             
     return templates.TemplateResponse("lineage.html", {
         "request": request,
         "deck": current_deck,
-        "graph_def": mermaid_str
+        "cy_nodes": json.dumps(cy_nodes),
+        "cy_edges": json.dumps(cy_edges),
+        "no_lineage": no_lineage
     })
 
 

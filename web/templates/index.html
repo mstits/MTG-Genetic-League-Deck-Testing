@@ -237,6 +237,7 @@
                                     <th class="p-3 text-left w-12">#</th>
                                     <th class="p-3 text-left">Deck Name</th>
                                     <th class="p-3 text-left">Colors</th>
+                                    <th class="p-3 text-left">Archetype</th>
                                     <th class="p-3 text-center" title="Salt Bracket">🧂 Bracket</th>
                                     <th class="p-3 text-left">Division</th>
                                     <th class="p-3 text-left">Elo</th>
@@ -246,7 +247,7 @@
                             </thead>
                             <tbody id="leaderboard-body">
                                 <tr>
-                                    <td colspan="8" class="p-6 text-center text-gray-500">Loading...</td>
+                                    <td colspan="9" class="p-6 text-center text-gray-500">Loading...</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -484,11 +485,12 @@
                             <th class="p-3 text-left">Matchup</th>
                             <th class="p-3 text-left">Winner</th>
                             <th class="p-3 text-left">Duration</th>
+                            <th class="p-3 text-center">Replay</th>
                         </tr>
                     </thead>
                     <tbody id="history-body">
                         <tr>
-                            <td colspan="3" class="p-6 text-center text-gray-500">Loading...</td>
+                            <td colspan="4" class="p-6 text-center text-gray-500">Loading...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -797,6 +799,17 @@
                         <div class="text-xs text-gray-400 mt-1">Record</div>
                     </div>
                 </div>
+                ${data.enrolled_id ? `
+                <div class="bg-green-900/20 border border-green-700/50 rounded-xl p-3 mb-4 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span class="text-green-400 text-lg">🏟️</span>
+                        <div>
+                            <div class="text-green-300 text-sm font-semibold">Enrolled in Competitive Play!</div>
+                            <div class="text-green-500/70 text-xs">Your deck has been added to the league as <strong>${data.enrolled_name}</strong> (Provisional, 1200 Elo)</div>
+                        </div>
+                    </div>
+                    <a href="/deck/${data.enrolled_id}" class="px-3 py-1.5 bg-green-800/50 text-green-300 rounded-lg text-xs font-semibold hover:bg-green-700/50 transition-colors border border-green-700/50">View Deck →</a>
+                </div>` : ''}
                 ${data.invalid_cards.length ? '<p class="text-yellow-500 text-xs mb-3">⚠️ Unknown cards: ' +
                         data.invalid_cards.join(', ') + '</p>' : ''}
                 <p class="text-xs text-gray-500 mb-2">${data.cards_valid} of ${data.cards_submitted} cards recognized
