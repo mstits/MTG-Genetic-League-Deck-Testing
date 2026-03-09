@@ -1148,7 +1148,24 @@ async def view_deck(request: Request, deck_id: int):
                 'mana_cost': data.get('mana_cost', ''),
                 'keywords': keywords,
                 'has_etb': has_etb,
+                'win_rate': None,  # Populated below from card_stats
             }
+        
+        # Fetch per-card win rates from card_stats
+        card_names_list = list(cards.keys())
+        if card_names_list:
+            placeholders = ','.join(['%s'] * len(card_names_list))
+            cursor.execute(f'''
+                SELECT card_name, wins, total_matches,
+                       ROUND(CAST(wins AS NUMERIC) / CASE WHEN total_matches = 0 THEN 1 ELSE total_matches END * 100, 1) AS win_rate
+                FROM card_stats
+                WHERE card_name IN ({placeholders}) AND total_matches >= 3
+            ''', tuple(card_names_list))
+            for row in cursor.fetchall():
+                r = dict(row)
+                if r['card_name'] in card_info:
+                    card_info[r['card_name']]['win_rate'] = r['win_rate']
+                    card_info[r['card_name']]['win_rate_matches'] = r['total_matches']
         
         # Game 1 Stats
         cursor.execute('SELECT COUNT(*) as c FROM matches WHERE deck1_id = %s OR deck2_id = %s', (deck_id, deck_id))
@@ -1201,9 +1218,31 @@ async def view_deck(request: Request, deck_id: int):
         except Exception:
             pass  # Graceful fallback if archetype column missing
         
+        # Elo History — compute trajectory from match results
+        elo_history = []
+        try:
+            cursor.execute('''
+                SELECT m.winner_id, m.timestamp
+                FROM matches m
+                WHERE m.deck1_id = %s OR m.deck2_id = %s
+                ORDER BY m.timestamp ASC
+            ''', (deck_id, deck_id))
+            running_elo = 1200.0
+            for row in cursor.fetchall():
+                r = dict(row)
+                # Approximate Elo delta per match (simplified)
+                if r['winner_id'] == deck_id:
+                    running_elo += 16  # Simplified K-factor win
+                elif r['winner_id'] is not None:
+                    running_elo -= 16  # Simplified K-factor loss
+                elo_history.append(round(running_elo, 1))
+        except Exception:
+            pass
+        
     return templates.TemplateResponse("deck.html", {
         "request": request, "deck": deck, "matches": matches, 
-        "card_info": card_info, "matchup_spread": matchup_spread
+        "card_info": card_info, "matchup_spread": matchup_spread,
+        "elo_history": elo_history
     })
 
 @app.get("/match/{match_id}", response_class=HTMLResponse)
@@ -2149,6 +2188,40 @@ async def get_sideboard_guide(deck_id: int):
         }
         
     return JSONResponse({"deck_id": deck_id, "guide": summary})
+
+
+@app.get("/api/matchup-matrix", response_class=JSONResponse)
+async def api_matchup_matrix():
+    """Archetype × archetype win rate matrix for the metagame heatmap."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT d1.archetype AS arch1, d2.archetype AS arch2,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN m.winner_id = m.deck1_id THEN 1 ELSE 0 END) AS arch1_wins
+            FROM matches m
+            JOIN decks d1 ON m.deck1_id = d1.id
+            JOIN decks d2 ON m.deck2_id = d2.id
+            WHERE d1.archetype != 'Unknown' AND d2.archetype != 'Unknown'
+            GROUP BY d1.archetype, d2.archetype
+            HAVING COUNT(*) >= 3
+            ORDER BY d1.archetype, d2.archetype
+        ''')
+        rows = [dict(r) for r in cursor.fetchall()]
+    
+    # Build matrix
+    archetypes = sorted(set(r['arch1'] for r in rows) | set(r['arch2'] for r in rows))
+    matrix = {}
+    for a1 in archetypes:
+        matrix[a1] = {}
+        for a2 in archetypes:
+            matrix[a1][a2] = None
+    
+    for r in rows:
+        wr = round(r['arch1_wins'] / max(r['total'], 1) * 100, 1)
+        matrix[r['arch1']][r['arch2']] = wr
+    
+    return JSONResponse({"archetypes": archetypes, "matrix": matrix})
 
 
 @app.get("/api/meta-trends", response_class=JSONResponse)

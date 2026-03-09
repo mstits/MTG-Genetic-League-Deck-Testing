@@ -498,6 +498,16 @@
             <div id="meta-body">
                 <p class="text-gray-500 text-center p-6">Loading...</p>
             </div>
+
+            <!-- Archetype Matchup Heatmap -->
+            <div class="mt-6 pt-6 border-t border-gray-700/50">
+                <h3 class="text-lg font-bold text-white mb-2">🔥 Matchup Heatmap</h3>
+                <p class="text-xs text-gray-500 mb-4">Archetype vs archetype win rates from simulation data (≥3 matches)
+                </p>
+                <div id="heatmap-container" class="overflow-x-auto">
+                    <p class="text-gray-500 text-center p-4 text-sm">Loading heatmap...</p>
+                </div>
+            </div>
         </div>
 
         <!-- Match History -->
@@ -681,6 +691,45 @@
                 .then(r => r.text())
                 .then(html => { if (target) target.innerHTML = html; })
                 .catch(e => { if (target) target.innerHTML = '<tr><td colspan="10" class="p-6 text-center text-gray-500">Failed to load data</td></tr>'; });
+            // Auto-load heatmap when switching to meta tab
+            if (tab === 'meta') loadHeatmap();
+        }
+
+        async function loadHeatmap() {
+            const container = document.getElementById('heatmap-container');
+            if (!container) return;
+            try {
+                const resp = await fetch('/api/matchup-matrix');
+                const data = await resp.json();
+                if (!data.archetypes || data.archetypes.length === 0) {
+                    container.innerHTML = '<p class="text-gray-500 text-center text-sm py-4">Not enough match data yet for heatmap.</p>';
+                    return;
+                }
+                const archs = data.archetypes;
+                const m = data.matrix;
+                let html = '<table class="text-xs w-full border-collapse"><thead><tr><th class="p-1.5 text-gray-500 text-left"></th>';
+                archs.forEach(a => { html += `<th class="p-1.5 text-gray-400 font-medium text-center" style="min-width:60px;writing-mode:vertical-lr;transform:rotate(180deg);height:80px">${a}</th>`; });
+                html += '</tr></thead><tbody>';
+                archs.forEach(row => {
+                    html += `<tr><td class="p-1.5 text-gray-300 font-medium whitespace-nowrap pr-3">${row}</td>`;
+                    archs.forEach(col => {
+                        const wr = m[row] && m[row][col];
+                        if (wr === null || wr === undefined) {
+                            html += '<td class="p-1 text-center"><div class="w-full h-8 rounded bg-gray-800/50 flex items-center justify-center text-gray-600 text-[10px]">—</div></td>';
+                        } else {
+                            const hue = Math.round((wr / 100) * 120); // 0=red, 60=yellow, 120=green
+                            const bg = `hsl(${hue}, 70%, 20%)`;
+                            const fg = `hsl(${hue}, 80%, 65%)`;
+                            html += `<td class="p-1 text-center"><div class="w-full h-8 rounded flex items-center justify-center font-bold" style="background:${bg};color:${fg}" title="${row} vs ${col}: ${wr}%">${wr}%</div></td>`;
+                        }
+                    });
+                    html += '</tr>';
+                });
+                html += '</tbody></table>';
+                container.innerHTML = html;
+            } catch (e) {
+                container.innerHTML = '<p class="text-red-400 text-center text-sm py-4">Error loading heatmap.</p>';
+            }
         }
 
         // ─── Deck Builder State ─────────────────────────────────────

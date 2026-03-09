@@ -90,6 +90,52 @@
                             class="text-2xl font-bold {% if deck.elo >= 1200 %}text-green-400{% else %}text-red-400{% endif %}">
                             {{ "%.0f"|format(deck.elo) }}
                         </div>
+                        {% if elo_history and elo_history|length > 1 %}
+                        <div class="mt-2" id="elo-sparkline-container">
+                            <svg id="elo-sparkline" viewBox="0 0 200 40" class="w-full h-10" preserveAspectRatio="none">
+                                <defs>
+                                    <linearGradient id="spark-fill" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%"
+                                            stop-color="{% if deck.elo >= 1200 %}rgba(74,222,128,0.3){% else %}rgba(248,113,113,0.3){% endif %}" />
+                                        <stop offset="100%" stop-color="transparent" />
+                                    </linearGradient>
+                                </defs>
+                            </svg>
+                        </div>
+                        <script>
+                            (function () {
+                                const data = {{ elo_history | tojson
+                            }};
+                            if (data.length < 2) return;
+                            const svg = document.getElementById('elo-sparkline');
+                            const w = 200, h = 40, pad = 2;
+                            const mn = Math.min(...data), mx = Math.max(...data);
+                            const range = mx - mn || 1;
+                            const pts = data.map((v, i) => {
+                                const x = pad + (i / (data.length - 1)) * (w - 2 * pad);
+                                const y = h - pad - ((v - mn) / range) * (h - 2 * pad);
+                                return `${x.toFixed(1)},${y.toFixed(1)}`;
+                            });
+                            const color = data[data.length - 1] >= data[0] ? '#4ade80' : '#f87171';
+                            // Fill polygon
+                            const firstX = pad, lastX = w - pad;
+                            const fillPts = `${firstX},${h} ` + pts.join(' ') + ` ${lastX},${h}`;
+                            const fill = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                            fill.setAttribute('points', fillPts);
+                            fill.setAttribute('fill', 'url(#spark-fill)');
+                            svg.appendChild(fill);
+                            // Line
+                            const line = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+                            line.setAttribute('points', pts.join(' '));
+                            line.setAttribute('fill', 'none');
+                            line.setAttribute('stroke', color);
+                            line.setAttribute('stroke-width', '1.5');
+                            line.setAttribute('stroke-linecap', 'round');
+                            line.setAttribute('stroke-linejoin', 'round');
+                            svg.appendChild(line);
+                        }) ();
+                        </script>
+                        {% endif %}
                     </div>
                     <div>
                         <div class="text-xs text-gray-400 uppercase tracking-wider">Avg CMC</div>
@@ -236,6 +282,15 @@
                                         class="text-xs bg-gray-700/50 text-gray-400 px-1 rounded hidden group-hover:inline">{{
                                         kw }}</span>
                                     {% endfor %}
+                                    {% set wr = card_info.get(c.name, {}).get('win_rate') %}
+                                    {% if wr is not none %}
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold
+                                        {% if wr >= 55 %}bg-green-900/50 text-green-400
+                                        {% elif wr >= 45 %}bg-gray-700/50 text-gray-400
+                                        {% else %}bg-red-900/50 text-red-400{% endif %}"
+                                        title="Global win rate: {{ wr }}% ({{ card_info[c.name].get('win_rate_matches', 0) }} matches)">{{
+                                        wr }}%</span>
+                                    {% endif %}
                                 </div>
                             </div>
                             {% endfor %}
@@ -270,6 +325,15 @@
                                         class="text-xs bg-gray-700/50 text-gray-400 px-1 rounded hidden group-hover:inline">{{
                                         kw }}</span>
                                     {% endfor %}
+                                    {% set wr = card_info.get(c.name, {}).get('win_rate') %}
+                                    {% if wr is not none %}
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold
+                                        {% if wr >= 55 %}bg-green-900/50 text-green-400
+                                        {% elif wr >= 45 %}bg-gray-700/50 text-gray-400
+                                        {% else %}bg-red-900/50 text-red-400{% endif %}"
+                                        title="Global win rate: {{ wr }}% ({{ card_info[c.name].get('win_rate_matches', 0) }} matches)">{{
+                                        wr }}%</span>
+                                    {% endif %}
                                 </div>
                             </div>
                             {% endfor %}
