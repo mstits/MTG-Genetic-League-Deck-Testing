@@ -975,13 +975,13 @@
             document.getElementById('stats-container').innerHTML = h;
         });
 
-        // Auto-refresh every 5 seconds (skip test-deck tab)
+        // Auto-refresh every 60 seconds (skip test-deck tab)
         setInterval(() => {
             if (currentTab !== 'test-deck') loadData(currentTab);
             fetch('/api/stats').then(r => r.text()).then(h => {
                 document.getElementById('stats-container').innerHTML = h;
             });
-        }, 5000);
+        }, 60000);
     </script>
 
     <!-- Dev Footer -->

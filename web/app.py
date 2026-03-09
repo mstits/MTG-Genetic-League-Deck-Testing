@@ -329,7 +329,7 @@ async def get_meta(request: Request):
                    SUM(wins) as total_wins, SUM(losses) as total_losses,
                    AVG(elo) as avg_elo
             FROM decks 
-            WHERE active=1 AND colors != '' AND name NOT LIKE 'BOSS:%'
+            WHERE active=1 AND colors != ''
             GROUP BY colors
             ORDER BY avg_elo DESC
         ''')
