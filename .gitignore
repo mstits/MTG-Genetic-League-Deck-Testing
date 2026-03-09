@@ -37,10 +37,10 @@ data/sovereign.db
 data/sovereign_results.json
 data/mulligan_model.npz
 
-# Root-level scratch files
-*.png
-test_*.py
-test_*.js
+# Root-level scratch files (not docs/images/)
+/*.png
+/test_*.py
+/test_*.js
 
 # Copyrighted material (not included in repo)
 MagicCompRules*.pdf
