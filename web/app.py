@@ -1546,9 +1546,8 @@ async def flex_test(request: Request):
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return JSONResponse({"error": f"Internal Error: {str(e)}"}, status_code=500)
+        logger.exception("Mana calc error")
+        return JSONResponse({"error": "Internal server error. Please try again."}, status_code=500)
 
 
 @app.post("/api/mana-calc")
@@ -1583,9 +1582,8 @@ async def mana_calc(request: Request):
         results = evaluate_deck_mana(deck_dict, card_pool)
         return JSONResponse({"results": results})
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return JSONResponse({"error": f"Internal Error: {str(e)}"}, status_code=500)
+        logger.exception("Flex test error")
+        return JSONResponse({"error": "Internal server error. Please try again."}, status_code=500)
 
 
 # ─── Matchup Matrix: archetype vs archetype win rates ─────────────────────
@@ -2395,7 +2393,8 @@ async def admin_restart():
         )
         return {"status": "ok", "message": "Sovereign simulation restarted in background."}
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        logger.exception("Failed to restart sovereign")
+        return JSONResponse({"status": "error", "message": "Failed to restart simulation."}, status_code=500)
 
 @app.post("/api/admin/reset-elo")
 async def admin_reset_elo():
@@ -2410,7 +2409,8 @@ async def admin_reset_elo():
         conn.close()
         return {"status": "ok", "message": f"Reset {affected} decks to ELO 1200."}
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        logger.exception("Failed to reset ELO")
+        return JSONResponse({"status": "error", "message": "Failed to reset ELO ratings."}, status_code=500)
 
 @app.get("/admin/butterfly", response_class=HTMLResponse)
 async def butterfly_dashboard(request: Request):
