@@ -87,6 +87,7 @@
         .grade-S {
             background: linear-gradient(135deg, #f59e0b, #ef4444);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
@@ -395,12 +396,33 @@
                             Gauntlet bosses. This determines the mathematically optimal flex slots for your deck.</span>
                     </div>
 
+                    <!-- Opponent Selector -->
+                    <div class="mt-3 bg-gray-900/50 rounded-xl p-3 border border-gray-700/50"
+                        id="opponent-selector-wrap">
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="text-xs text-gray-400 font-medium">Test Against</label>
+                            <button onclick="loadOpponents()"
+                                class="text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors">↻
+                                Refresh</button>
+                        </div>
+                        <select id="opponent-select"
+                            class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none appearance-none cursor-pointer">
+                            <option value="">All Top 10 League Decks (default)</option>
+                        </select>
+                    </div>
+
                     <!-- Submit -->
                     <div class="flex justify-between mt-3 flex-wrap items-center">
-                        <button onclick="checkManaBase()"
-                            class="px-4 py-2.5 bg-gray-800 text-gray-300 rounded-lg text-sm font-semibold hover:bg-gray-700 transition-all border border-gray-700 shadow-sm flex items-center gap-1 mb-2 sm:mb-0">
-                            💧 Check Mana Base
-                        </button>
+                        <div class="flex gap-2 mb-2 sm:mb-0">
+                            <button onclick="checkManaBase()"
+                                class="px-4 py-2.5 bg-gray-800 text-gray-300 rounded-lg text-sm font-semibold hover:bg-gray-700 transition-all border border-gray-700 shadow-sm flex items-center gap-1">
+                                💧 Mana Base
+                            </button>
+                            <button onclick="copyDeckToClipboard()" id="copy-deck-btn"
+                                class="px-4 py-2.5 bg-gray-800 text-gray-300 rounded-lg text-sm font-semibold hover:bg-gray-700 transition-all border border-gray-700 shadow-sm flex items-center gap-1">
+                                📋 Copy for Arena
+                            </button>
+                        </div>
 
                         <div class="flex gap-2">
                             <div class="flex justify-end" id="submit-standard">
@@ -848,10 +870,60 @@
             return deckState.map(c => `${c.count} ${c.name}`).join('\n');
         }
 
+        // ─── Copy Deck to Clipboard (Arena format) ────────────────
+        function copyDeckToClipboard() {
+            let text = '';
+            if (builderMode === 'search' && deckState.length > 0) {
+                const sorted = [...deckState].sort((a, b) => {
+                    const typeOrder = t => t.type_line?.includes('Land') ? 2 : t.type_line?.includes('Creature') ? 0 : 1;
+                    return typeOrder(a) - typeOrder(b) || (a.cmc || 0) - (b.cmc || 0);
+                });
+                text = sorted.map(c => `${c.count} ${c.name}`).join('\n');
+            } else if (builderMode === 'paste') {
+                text = document.getElementById('deck-input').value.trim();
+            }
+            if (!text) { return; }
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = document.getElementById('copy-deck-btn');
+                btn.innerHTML = '✅ Copied!';
+                btn.classList.add('border-green-600', 'text-green-400');
+                setTimeout(() => {
+                    btn.innerHTML = '📋 Copy for Arena';
+                    btn.classList.remove('border-green-600', 'text-green-400');
+                }, 2000);
+            });
+        }
+
+        // ─── Load Opponents for Targeted Testing ─────────────────
+        async function loadOpponents() {
+            try {
+                const resp = await fetch('/api/leaderboard?format=json&limit=20');
+                const decks = await resp.json();
+                const select = document.getElementById('opponent-select');
+                select.innerHTML = '<option value="">All Top 10 League Decks (default)</option>';
+                if (Array.isArray(decks)) {
+                    for (const d of decks) {
+                        select.innerHTML += `<option value="${d.id}">${d.name} (${Math.round(d.elo)} Elo)</option>`;
+                    }
+                }
+            } catch (e) { console.warn('Failed to load opponents:', e); }
+        }
+        // Load opponents on first switch to test-deck tab
+        let _opponentsLoaded = false;
+        const origSwitchTab = switchTab;
+        switchTab = function (tab) {
+            origSwitchTab(tab);
+            if (tab === 'test-deck' && !_opponentsLoaded) {
+                _opponentsLoaded = true;
+                loadOpponents();
+            }
+        };
+
         async function testDeck() {
             const input = getDecklistString();
             if (!input) return;
 
+            const opponentId = document.getElementById('opponent-select')?.value || '';
             const btn = document.getElementById('test-btn');
             const results = document.getElementById('test-results');
             const content = document.getElementById('test-results-content');
@@ -869,10 +941,12 @@
             </div>`;
 
             try {
+                const payload = { decklist: input };
+                if (opponentId) payload.opponent_id = parseInt(opponentId);
                 const resp = await fetch('/api/test-deck', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ decklist: input })
+                    body: JSON.stringify(payload)
                 });
                 const data = await resp.json();
 
@@ -947,6 +1021,23 @@
                     </thead>
                     <tbody>${matchupsHtml}</tbody>
                 </table>
+                ${data.matchups.some(m => m.per_game) ? `
+                <div class="mt-4 bg-gray-800/50 rounded-xl p-4 border border-gray-700">
+                    <h4 class="text-sm font-bold text-indigo-300 mb-3">📋 Per-Game Breakdown</h4>
+                    <div class="grid grid-cols-5 gap-2">
+                        ${data.matchups.filter(m => m.per_game).flatMap(m => m.per_game.map(g => {
+                            const cls = g.winner === 'You' ? 'bg-green-900/30 border-green-700/50 text-green-400' :
+                                g.winner === 'Draw' ? 'bg-yellow-900/30 border-yellow-700/50 text-yellow-400' :
+                                    'bg-red-900/30 border-red-700/50 text-red-400';
+                            const icon = g.winner === 'You' ? '✅' : g.winner === 'Draw' ? '➖' : '❌';
+                            return `<div class="rounded-lg p-2 text-center border ${cls}">
+                                <div class="text-xs text-gray-500">Game ${g.game}</div>
+                                <div class="text-sm font-bold">${icon}</div>
+                                <div class="text-[10px] text-gray-500">T${g.turns}</div>
+                            </div>`;
+                        })).join('')}
+                    </div>
+                </div>` : ''}
             </div>`;
             } catch (e) {
                 content.innerHTML = `<div class="bg-red-900/30 border border-red-700 rounded-xl p-4">

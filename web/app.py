@@ -235,9 +235,10 @@ async def get_meta_map():
         print(f"Meta-Map Error: {e}")
         return {"points": []}
 
-@app.get("/api/leaderboard", response_class=HTMLResponse)
-async def get_leaderboard(request: Request):
-    """Render the HTML fragment for the ranked deck leaderboard."""
+@app.get("/api/leaderboard")
+async def get_leaderboard(request: Request, format: str = "html", limit: int = 50):
+    """Render the HTML fragment or JSON for the ranked deck leaderboard."""
+    limit = min(limit, 100)  # Cap at 100
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -245,9 +246,17 @@ async def get_leaderboard(request: Request):
             FROM decks 
             WHERE active=1 
             ORDER BY elo DESC 
-            LIMIT 50
-        ''')
+            LIMIT %s
+        ''', (limit,))
         decks = [dict(row) for row in cursor.fetchall()]
+    
+    # JSON format for opponent selector and API consumers
+    if format == 'json':
+        return JSONResponse([{
+            'id': d['id'], 'name': d['name'], 'elo': d['elo'],
+            'colors': d.get('colors', ''), 'division': d.get('division', ''),
+            'wins': d.get('wins', 0), 'losses': d.get('losses', 0)
+        } for d in decks])
         
     from engine.salt_score import calculate_salt_score
     import json
@@ -1396,14 +1405,27 @@ async def test_deck(request: Request):
         
         user_deck = make_deck(valid)
         
-        # Get top 10 league decks to test against
+        # Get opponents to test against
+        opponent_id = body.get('opponent_id')
+        
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT id, name, card_list, elo FROM decks 
-                WHERE active=1 ORDER BY elo DESC LIMIT 10
-            ''')
+            if opponent_id:
+                # Targeted matchup: test against a specific deck (5 games for significance)
+                cursor.execute('''
+                    SELECT id, name, card_list, elo FROM decks 
+                    WHERE id = %s AND active=1
+                ''', (int(opponent_id),))
+            else:
+                # Default: test against top 10 league decks
+                cursor.execute('''
+                    SELECT id, name, card_list, elo FROM decks 
+                    WHERE active=1 ORDER BY elo DESC LIMIT 10
+                ''')
             opponents = [dict(row) for row in cursor.fetchall()]
+        
+        if not opponents:
+            return JSONResponse({"error": "No opponents found"}, status_code=400)
         
         # Run matches in parallel for speed
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1424,9 +1446,13 @@ async def test_deck(request: Request):
             # Build a fresh user deck per thread to avoid data races
             thread_user_deck = make_deck(valid)
             
+            # More games for targeted testing (5 vs 3) for statistical significance
+            num_games = 5 if opponent_id else 3
+            
             w, l, d = 0, 0, 0
             turns_list = []
-            for _ in range(3):
+            per_game = []
+            for g_idx in range(num_games):
                 try:
                     p1 = Player("UserDeck", thread_user_deck)
                     p2 = Player(opp['name'], opp_deck)
@@ -1434,26 +1460,34 @@ async def test_deck(request: Request):
                     runner = SimulationRunner(game, [HeuristicAgent(), HeuristicAgent()])
                     result = runner.run()
                     turns_list.append(result.turns)
+                    game_winner = None
                     if result.winner == "UserDeck":
                         w += 1
+                        game_winner = "You"
                     elif result.winner == opp['name']:
                         l += 1
+                        game_winner = opp['name']
                     else:
                         d += 1
-                    if w >= 2 or l >= 2:
+                        game_winner = "Draw"
+                    per_game.append({"game": g_idx + 1, "winner": game_winner, "turns": result.turns})
+                    if not opponent_id and (w >= 2 or l >= 2):
                         break
                 except Exception as e:
                     logger.warning("Simulation failed vs %s: %s", opp['name'], e)
                     d += 1
             
             match_result = "Win" if w > l else "Loss" if l > w else "Draw"
-            return {
+            result_dict = {
                 "opponent": opp['name'],
                 "opponent_elo": round(opp['elo']),
                 "games": f"{w}-{l}" + (f"-{d}" if d else ""),
                 "result": match_result,
                 "avg_turns": round(sum(turns_list) / max(len(turns_list), 1), 1)
             }
+            if opponent_id:
+                result_dict["per_game"] = per_game
+            return result_dict
         
         results = []
         total_wins, total_losses, total_draws = 0, 0, 0

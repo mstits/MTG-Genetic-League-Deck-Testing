@@ -354,6 +354,8 @@ class LeagueManager:
             sb1 = self._generate_virtual_sideboard(deck1)
             sb2 = self._generate_virtual_sideboard(deck2)
             match_sideboard_plans = []
+            p1_cards_seen = set()  # Cards seen played by Player 2
+            p2_cards_seen = set()  # Cards seen played by Player 1
             
             for game_num in range(3):
                 player1 = Player(f"Deck {deck1.db_id}", deck1)
@@ -361,8 +363,20 @@ class LeagueManager:
                 
                 if game_num > 0:
                     prev_game = {'winner': result.winner, 'p1_life': getattr(player1, 'life', 0), 'p2_life': getattr(player2, 'life', 0), 'game_log': result.game_log}
-                    swaps1 = bo3_mgr._apply_sideboard(player1, sb1, game_num, prev_game)
-                    swaps2 = bo3_mgr._apply_sideboard(player2, sb2, game_num, prev_game)
+                    # Extract cards seen from previous game log for targeted sideboard decisions
+                    import re
+                    for line in result.game_log:
+                        # Match "Player casts/plays Card Name" patterns
+                        m = re.search(r'Deck (\d+) (?:casts|plays|attacks with) (.+?)(?:\s*\(|$)', str(line))
+                        if m:
+                            deck_id_str, card_name = m.group(1), m.group(2).strip()
+                            if deck_id_str == str(deck2.db_id):
+                                p1_cards_seen.add(card_name)  # P1 saw P2 play this
+                            elif deck_id_str == str(deck1.db_id):
+                                p2_cards_seen.add(card_name)  # P2 saw P1 play this
+                    
+                    swaps1 = bo3_mgr._apply_sideboard(player1, sb1, game_num, prev_game, cards_seen=p1_cards_seen)
+                    swaps2 = bo3_mgr._apply_sideboard(player2, sb2, game_num, prev_game, cards_seen=p2_cards_seen)
                     for swap in swaps1:
                         match_sideboard_plans.append({"deck_id": deck1.db_id, "opp": swap['opp_archetype'], "in": swap['card_in'], "out": swap['card_out']})
                     for swap in swaps2:

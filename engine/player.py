@@ -446,7 +446,7 @@ class Player:
         if not needed_colors and generic_needed <= 0:
             return assignment
             
-        # Recursive step
+        # Recursive step: satisfy colored requirements
         if needed_colors:
             target = needed_colors[0]
             remaining_needs = needed_colors[1:]
@@ -458,13 +458,43 @@ class Player:
                     if res: return res
             return None
             
-        # Pay generic
+        # Pay generic — COLOR-DIVERSITY OPTIMIZATION
+        # Sort remaining lands by "expendability": tap lands that produce
+        # already-abundant colors first, preserve scarce-color sources.
         if generic_needed > 0:
             if not available_lands:
                 return None
-            land, options = available_lands[0]
-            color = options[0]
-            return self._backtrack_solve(available_lands[1:], [], generic_needed - 1, assignment + [(land, color)])
+            
+            # Count how many untapped lands produce each color
+            color_supply = {}
+            for _, options in available_lands:
+                for c in options:
+                    color_supply[c] = color_supply.get(c, 0) + 1
+            
+            def expendability(land_tuple):
+                """Higher = more expendable (tap this land first for generic).
+                Lands producing only abundant colors are tapped first.
+                Lands that are the sole source of a color are preserved."""
+                _, options = land_tuple
+                if not options:
+                    return 1000  # Colorless — always tap first
+                
+                # Minimum supply across all colors this land produces:
+                # If this land is the only source of any color, it's critical
+                min_supply = min(color_supply.get(c, 0) for c in options)
+                
+                # Fewer unique colors = more expendable (basic land)
+                # More unique colors = could be valuable (dual/tri land)
+                flexibility = len(options)
+                
+                # Score: high supply + low flexibility = expendable
+                return min_supply * 10 - flexibility
+            
+            sorted_lands = sorted(available_lands, key=expendability, reverse=True)
+            land, options = sorted_lands[0]
+            remaining_lands = [(l, o) for l, o in sorted_lands[1:]]
+            color = options[0] if options else 'C'
+            return self._backtrack_solve(remaining_lands, [], generic_needed - 1, assignment + [(land, color)])
             
         return None
 
