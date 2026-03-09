@@ -18,6 +18,18 @@ The MTG Genetic League evolves decks through natural selection — populations o
 
 ---
 
+## Screenshots
+
+| Dashboard & Leaderboard | Deck Detail & Matchup Spread |
+|:-:|:-:|
+| ![Dashboard](docs/images/dashboard.png) | ![Deck Detail](docs/images/deck_detail.png) |
+
+| Metagame Analytics | Match Replay |
+|:-:|:-:|
+| ![Meta Trends](docs/images/meta_trends.png) | ![Match Replay](docs/images/match_replay.png) |
+
+> **New here?** Check out the **[Getting Started Guide](docs/GETTING_STARTED.md)** for a walkthrough of every feature.
+
 ## Architecture
 
 ```mermaid
