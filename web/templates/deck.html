@@ -507,6 +507,16 @@
             </table>
         </div>
         {% endif %}
+
+        <!-- Card Suggestions -->
+        <div class="glass rounded-2xl p-6 mt-6">
+            <h3 class="text-lg font-bold text-white mb-2">💡 Card Suggestions</h3>
+            <p class="text-sm text-gray-400 mb-4">High win-rate cards in your colors that could strengthen this deck.
+            </p>
+            <div id="suggestions-container">
+                <p class="text-gray-500 text-center text-sm py-4">Loading suggestions...</p>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -640,6 +650,41 @@
         }
 
         document.addEventListener('DOMContentLoaded', loadSideboardGuide);
+        document.addEventListener('DOMContentLoaded', loadSuggestions);
+
+        async function loadSuggestions() {
+            try {
+                const resp = await fetch('/api/deck/{{ deck.id }}/suggestions');
+                const data = await resp.json();
+                const container = document.getElementById('suggestions-container');
+
+                if (!data.suggestions || data.suggestions.length === 0) {
+                    container.innerHTML = '<p class="text-gray-500 text-center text-sm py-4">No suggestions available yet. Need more card performance data from matches.</p>';
+                    return;
+                }
+
+                let html = '<div class="grid grid-cols-1 md:grid-cols-2 gap-2">';
+                data.suggestions.forEach(s => {
+                    const wrCls = s.win_rate >= 60 ? 'bg-green-900/50 text-green-400' :
+                        s.win_rate >= 50 ? 'bg-blue-900/50 text-blue-400' :
+                            'bg-gray-700/50 text-gray-400';
+                    const encodedName = encodeURIComponent(s.name);
+                    html += `<div class="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-700/30 border border-gray-800 transition-colors">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <a href="https://scryfall.com/search?q=%21%22${encodedName}%22" target="_blank" rel="noopener"
+                               class="text-blue-400 hover:text-blue-300 hover:underline text-sm truncate">${s.name}</a>
+                            <span class="text-[10px] ${wrCls} px-1.5 py-0.5 rounded font-mono font-bold">${s.win_rate}%</span>
+                        </div>
+                        <div class="text-[10px] text-gray-500 whitespace-nowrap ml-2">${s.matches} games</div>
+                    </div>`;
+                });
+                html += '</div>';
+                container.innerHTML = html;
+            } catch (e) {
+                const container = document.getElementById('suggestions-container');
+                if (container) container.innerHTML = '<p class="text-red-400 text-center text-sm py-4">Error loading suggestions.</p>';
+            }
+        }
 
     </script>
 

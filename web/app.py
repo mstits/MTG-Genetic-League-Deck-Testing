@@ -1245,6 +1245,129 @@ async def view_deck(request: Request, deck_id: int):
         "elo_history": elo_history
     })
 
+@app.get("/api/deck/{deck_id}/suggestions", response_class=JSONResponse)
+async def deck_suggestions(deck_id: int):
+    """Suggest high win-rate cards the deck could add (matching its color identity)."""
+    import os as _os
+    base = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    cp_path = _os.path.join(base, 'data', 'legal_cards.json')
+    if not _os.path.exists(cp_path):
+        cp_path = _os.path.join(base, 'data', 'processed_cards.json')
+    card_pool = {}
+    if _os.path.exists(cp_path):
+        with open(cp_path) as f:
+            for c in json.load(f):
+                card_pool[c['name']] = c
+    
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT card_list, colors FROM decks WHERE id = %s', (deck_id,))
+        row = cursor.fetchone()
+        if not row:
+            return JSONResponse({"suggestions": []})
+        
+        deck_cards = json.loads(row['card_list'])
+        if isinstance(deck_cards, list):
+            deck_card_names = set(deck_cards)
+        else:
+            deck_card_names = set(deck_cards.keys())
+        
+        deck_colors = set(row['colors'] or '')
+        
+        # Get high win-rate cards not already in this deck
+        cursor.execute('''
+            SELECT card_name, wins, total_matches,
+                   ROUND(CAST(wins AS NUMERIC) / CASE WHEN total_matches = 0 THEN 1 ELSE total_matches END * 100, 1) AS win_rate
+            FROM card_stats
+            WHERE total_matches >= 5
+            ORDER BY win_rate DESC
+            LIMIT 200
+        ''')
+        
+        suggestions = []
+        for r in cursor.fetchall():
+            card = dict(r)
+            name = card['card_name']
+            if name in deck_card_names:
+                continue
+            
+            # Check color compatibility
+            pool_data = card_pool.get(name, {})
+            card_colors = set(pool_data.get('color_identity', []))
+            type_line = pool_data.get('type_line', '')
+            
+            # Skip lands (user picks their own mana base)
+            if 'Land' in type_line:
+                continue
+            
+            # Card must fit within deck's color identity
+            if card_colors and deck_colors and not card_colors.issubset(deck_colors):
+                continue
+            
+            suggestions.append({
+                'name': name,
+                'win_rate': card['win_rate'],
+                'matches': card['total_matches'],
+                'type_line': type_line,
+                'mana_cost': pool_data.get('mana_cost', ''),
+            })
+            
+            if len(suggestions) >= 10:
+                break
+    
+    return JSONResponse({"suggestions": suggestions})
+
+
+@app.get("/api/compare", response_class=JSONResponse)
+async def compare_decks(deck1_id: int, deck2_id: int):
+    """Compare two decks side-by-side: shared cards, unique cards, stat diffs."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        decks = {}
+        for did in (deck1_id, deck2_id):
+            cursor.execute('SELECT id, name, card_list, elo, wins, losses, draws, colors, archetype FROM decks WHERE id = %s', (did,))
+            row = cursor.fetchone()
+            if not row:
+                return JSONResponse({"error": f"Deck {did} not found"}, status_code=404)
+            d = dict(row)
+            cards = json.loads(d['card_list'])
+            if isinstance(cards, list):
+                c = {}
+                for n in cards: c[n] = c.get(n, 0) + 1
+                cards = c
+            d['cards'] = cards
+            decks[did] = d
+        
+        d1, d2 = decks[deck1_id], decks[deck2_id]
+        all_cards = set(d1['cards'].keys()) | set(d2['cards'].keys())
+        shared = []
+        only_d1 = []
+        only_d2 = []
+        
+        for name in sorted(all_cards):
+            c1 = d1['cards'].get(name, 0)
+            c2 = d2['cards'].get(name, 0)
+            if c1 > 0 and c2 > 0:
+                shared.append({'name': name, 'count1': c1, 'count2': c2})
+            elif c1 > 0:
+                only_d1.append({'name': name, 'count': c1})
+            else:
+                only_d2.append({'name': name, 'count': c2})
+    
+    return JSONResponse({
+        "deck1": {"id": d1['id'], "name": d1['name'], "elo": round(d1['elo']), 
+                  "wins": d1['wins'], "losses": d1['losses'], "colors": d1['colors'],
+                  "archetype": d1['archetype'], "total_cards": sum(d1['cards'].values())},
+        "deck2": {"id": d2['id'], "name": d2['name'], "elo": round(d2['elo']),
+                  "wins": d2['wins'], "losses": d2['losses'], "colors": d2['colors'],
+                  "archetype": d2['archetype'], "total_cards": sum(d2['cards'].values())},
+        "shared": shared,
+        "only_deck1": only_d1,
+        "only_deck2": only_d2,
+        "overlap_pct": round(len(shared) / max(len(all_cards), 1) * 100, 1)
+    })
+
+
 @app.get("/match/{match_id}", response_class=HTMLResponse)
 async def view_match(request: Request, match_id: int):
     """Render the detailed view of a specific match log."""
