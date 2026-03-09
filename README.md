@@ -20,25 +20,43 @@ The MTG Genetic League evolves decks through natural selection — populations o
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Web Dashboard (FastAPI)               │
-│  Leaderboard · Meta Map · Deck Builder · Match Replay   │
-├──────────────┬──────────────────────┬───────────────────┤
-│   League     │   Simulation         │   Optimizer       │
-│   Manager    │   Runner             │   Genetic         │
-│   ELO + Bo3  │   Game Loop          │   Evolution       │
-├──────────────┴──────────────────────┴───────────────────┤
-│                    Engine (Core Rules)                   │
-│  Game · Player · Card · Zones · Stack · SBAs · Combat   │
-├─────────────────────────────────────────────────────────┤
-│                    AI Agents                             │
-│  Heuristic · Strategic (MCTS) · Mulligan AI · Sideboard │
-├──────────────┬──────────────────────┬───────────────────┤
-│   PostgreSQL │   Redis (RQ)         │   Milvus (Vector) │
-│   Deck/Match │   Distributed Sims   │   Novelty Search  │
-│   Storage    │   Job Queue           │   Deck Similarity │
-└──────────────┴──────────────────────┴───────────────────┘
+```mermaid
+graph TD
+    subgraph Web["🌐 Web Dashboard (FastAPI)"]
+        LB["Leaderboard"]
+        MM["Meta Map"]
+        DB_UI["Deck Builder"]
+        MR["Match Replay"]
+    end
+
+    subgraph Mid["Application Layer"]
+        LM["League Manager<br/>ELO + Bo3"]
+        SR["Simulation Runner<br/>Game Loop"]
+        GO["Genetic Optimizer<br/>Evolution"]
+    end
+
+    subgraph Engine["⚙️ Engine (Core Rules)"]
+        G["Game · Player · Card"]
+        Z["Zones · Stack · SBAs · Combat"]
+    end
+
+    subgraph AI["🤖 AI Agents"]
+        HA["Heuristic Agent"]
+        SA["Strategic (MCTS)"]
+        MA["Mulligan AI"]
+        SB["Sideboard Agent"]
+    end
+
+    subgraph Data["💾 Data Layer"]
+        PG["PostgreSQL<br/>Deck/Match Storage"]
+        RD["Redis (RQ)<br/>Distributed Sims"]
+        MV["Milvus Vector DB<br/>Novelty Search"]
+    end
+
+    Web --> Mid
+    Mid --> Engine
+    Engine --> AI
+    Mid --> Data
 ```
 
 ---
@@ -229,11 +247,14 @@ Each player in a match uses their own K-factor independently, so a new deck can 
 
 Each season, the league runs this cycle:
 
-1. **Match** — Random pairings within divisions, Bo3 with sideboarding
-2. **Rate** — ELO adjustments with K-factor decay
-3. **Cull** — Bottom 5% retired (never culls Boss decks)
-4. **Breed** — Top champions crossbreed with mutation (card swaps)
-5. **Wild Cards** — Random new decks injected for genetic diversity
+```mermaid
+graph LR
+    Match["⚔️ Match<br/>Bo3 with sideboarding"] --> Rate["📊 Rate<br/>ELO + K-factor decay"]
+    Rate --> Cull["💀 Cull<br/>Bottom 5% retired"]
+    Cull --> Breed["🧬 Breed<br/>Champions crossbreed"]
+    Breed --> Wild["🎲 Wild Cards<br/>New decks injected"]
+    Wild --> Match
+```
 
 Fitness is multi-dimensional:
 
