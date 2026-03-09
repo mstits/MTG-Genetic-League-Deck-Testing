@@ -49,3 +49,5 @@ Magic-*Comprehensive*
 
 # Artifacts
 .gemini/
+data/league.db-shm
+data/league.db-wal
