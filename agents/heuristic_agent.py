@@ -208,25 +208,51 @@ class HeuristicAgent(BaseAgent):
         return 'midrange'
 
     def _evaluate_hidden_interaction(self, game, opp):
-        """Estimate the probability of opponent interaction based on open mana."""
+        """Estimate the probability of opponent interaction based on open mana.
+        
+        Returns an integer threat score (0-15+). Higher = more likely the
+        opponent is holding instant-speed interaction. Used to decide whether
+        to bait with a cheap spell before committing a big threat.
+        """
         score = 0
         opp_lands = [c for c in game.battlefield.cards if c.controller == opp and c.is_land and not getattr(c, 'is_tapped', False)]
+        
+        # No open mana = no interaction risk
+        if not opp_lands:
+            return 0
         
         open_u = sum(1 for c in opp_lands if 'Island' in getattr(c, 'type_line', '') or 'U' in getattr(c, 'produces', getattr(c, 'colors', [])))
         open_b = sum(1 for c in opp_lands if 'Swamp' in getattr(c, 'type_line', '') or 'B' in getattr(c, 'produces', getattr(c, 'colors', [])))
         open_r = sum(1 for c in opp_lands if 'Mountain' in getattr(c, 'type_line', '') or 'R' in getattr(c, 'produces', getattr(c, 'colors', [])))
         open_w = sum(1 for c in opp_lands if 'Plains' in getattr(c, 'type_line', '') or 'W' in getattr(c, 'produces', getattr(c, 'colors', [])))
+        open_g = sum(1 for c in opp_lands if 'Forest' in getattr(c, 'type_line', '') or 'G' in getattr(c, 'produces', getattr(c, 'colors', [])))
         
-        # Counterspell risk: UU or 1U up
+        # Counterspell risk: UU (Counterspell) or 1U (various 2-mana counters)
         if open_u >= 2: score += 5
-        elif open_u >= 1: score += 2
+        elif open_u >= 1 and len(opp_lands) >= 2: score += 3
         
-        # Removal/Trick risk
-        if open_b >= 1 or open_r >= 1 or open_w >= 1:
-            if len(opp_lands) >= 2: score += 3
-            else: score += 1
-            
-        return score
+        # Removal/destruction risk: BB or 1B (Go for the Throat, etc.)
+        if open_b >= 1 and len(opp_lands) >= 2: score += 3
+        
+        # Burn/instant damage: R or 1R (Lightning Bolt, etc.)
+        if open_r >= 1: score += 2
+        if open_r >= 2: score += 1
+        
+        # Combat trick risk: W or G open (Giant Growth, Condemn, etc.)
+        if (open_w >= 1 or open_g >= 1) and game.current_phase in ('Declare Attackers', 'Declare Blockers'):
+            score += 2
+        
+        # Hand-size weighting: more cards in hand = more likely holding answers
+        hand_size = len(opp.hand) if hasattr(opp, 'hand') else 0
+        if hand_size >= 5: score += 2
+        elif hand_size >= 3: score += 1
+        elif hand_size <= 1: score -= 2  # Near-empty hand, unlikely to have interaction
+        
+        # Turn-aware scaling: opponent is less likely to have interaction on T1-2
+        if game.turn_count <= 2:
+            score = max(0, score - 3)
+        
+        return max(0, score)
 
     # ── Extracted Scoring Functions ──────────────────────────────────
     # These were inline closures inside get_action. Extracted as methods

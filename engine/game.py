@@ -434,18 +434,56 @@ class Game:
             player.shuffle_library()
             player.draw_card(7, game=self)
             
-            # London Mulligan: Bottom N cards
+            # London Mulligan: Bottom N cards (intelligent card selection)
             new_hand = list(player.hand.cards)
             for _ in range(mulligan_count):
-                if new_hand:
-                    # Sort to find the least useful card to bottom (simplistic: highest cost non-land)
-                    def sort_key(c):
-                        cmc = Player._parse_cmc(c.cost) if c.cost else 0
-                        return (not c.is_land, cmc)
-                    new_hand.sort(key=sort_key)
-                    bottomed = new_hand.pop()
-                    player.hand.remove(bottomed)
-                    player.library.cards.append(bottomed)  # Bottom of library
+                if not new_hand:
+                    break
+                # Intelligent bottoming: evaluate which card is least useful
+                # for the opening hand. Consider land balance, curve, and
+                # immediate playability.
+                lands = [c for c in new_hand if c.is_land]
+                
+                def bottom_priority(c):
+                    """Higher = more likely to bottom. Keeps curve-relevant cards."""
+                    cmc = Player._parse_cmc(c.cost) if c.cost else 0
+                    score = 0
+                    
+                    # Excess lands: keep 2-3 lands, bottom extras
+                    if c.is_land:
+                        if len(lands) > 3:
+                            score += 10  # Too many lands, bottom one
+                        elif len(lands) > 2:
+                            score += 3   # Slightly land-heavy
+                        else:
+                            score -= 20  # Need this land, don't bottom
+                        return score
+                    
+                    # Uncastable early: bottom high-CMC spells when keeping
+                    # a post-mull hand (need to curve out with fewer cards)
+                    if cmc >= 5:
+                        score += 8  # Very expensive, unlikely to cast early
+                    elif cmc >= 4:
+                        score += 4  # Borderline
+                    elif cmc <= 2:
+                        score -= 5  # Cheap spells are premium in mulled hands
+                    
+                    # Haste/ETB: keep for immediate impact
+                    if getattr(c, 'has_haste', False):
+                        score -= 3
+                    if getattr(c, 'etb_effect', None):
+                        score -= 2
+                    
+                    # Removal/interaction: always keep
+                    if getattr(c, 'is_removal', False) or getattr(c, 'is_counter', False):
+                        score -= 4
+                    
+                    return score
+                
+                new_hand.sort(key=bottom_priority, reverse=True)
+                bottomed = new_hand.pop(0)  # Highest priority to bottom
+                player.hand.remove(bottomed)
+                player.library.cards.append(bottomed)  # Bottom of library
                     
         if mulligan_count > 0:
             self.mulligan_counts[player.name] = mulligan_count
@@ -764,17 +802,59 @@ class Game:
         2. Remove all damage from permanents
         3. End 'until end of turn' effects
         """
-        # 514.1: Discard to hand size
+        # 514.1: Discard to hand size — intelligent card selection
         player = self.active_player
+        lands_in_play = sum(1 for c in self.battlefield.cards 
+                          if c.controller == player and c.is_land)
+        
         while len(player.hand) > 7:
-            # Discard worst card (lowest CMC non-land, or a land if all lands)
             cards = list(player.hand.cards)
-            non_lands = [c for c in cards if not c.is_land]
-            if non_lands:
-                # Discard lowest-value card
-                worst = min(non_lands, key=lambda c: (c.power or 0) + (c.toughness or 0))
-            else:
-                worst = cards[-1]
+            
+            def discard_priority(c):
+                """Higher = more likely to discard. Keeps high-impact cards."""
+                score = 0
+                
+                # Excess lands: discard if we already have plenty
+                if c.is_land:
+                    hand_lands = sum(1 for x in cards if x.is_land)
+                    if lands_in_play >= 5 and hand_lands > 1:
+                        score += 10  # Flooded, discard extra lands
+                    elif lands_in_play >= 3 and hand_lands > 2:
+                        score += 5   # Enough lands, discard extras
+                    else:
+                        score -= 5   # Still need lands, keep
+                    return score
+                
+                cmc = Player._parse_cmc(c.cost) if c.cost else 0
+                
+                # Uncastable cards: discard high-CMC spells we can't play soon
+                if cmc > lands_in_play + 2:
+                    score += 6  # Way too expensive
+                elif cmc > lands_in_play + 1:
+                    score += 3  # Marginally too expensive
+                
+                # Keep removal and interaction
+                if getattr(c, 'is_removal', False) or getattr(c, 'is_counter', False):
+                    score -= 5
+                if getattr(c, 'is_board_wipe', False):
+                    score -= 8  # Board wipes are premium
+                
+                # Keep burn (reach for lethal)
+                if getattr(c, 'is_burn', False):
+                    score -= 3
+                
+                # Creature value: power + toughness + keywords
+                if c.is_creature:
+                    score -= (c.power or 0) + (c.toughness or 0) * 0.3
+                    if c.has_flying or c.has_trample: score -= 1
+                    if c.etb_effect: score -= 1
+                else:
+                    # Non-creature spells: base value from CMC
+                    score -= cmc * 0.5
+                
+                return score
+            
+            worst = max(cards, key=discard_priority)
             player.hand.remove(worst)
             # Madness check (Rule 702.34): if discarded card has madness, cast it
             if getattr(worst, 'madness_cost', '') and player.can_pay_cost(worst.madness_cost, self):
