@@ -10,6 +10,11 @@ Attributes:
     max_actions:     Maximum actions before game drawn (default 500).
     headless_mode:   True = max speed (minimal logging), False = verbose
                      board state logging for visualization.
+    strict_errors:   True = re-raise genuine code bugs (TypeError, KeyError, etc.)
+                     instead of catching them as Error outcomes. Default False.
+    error_budget_threshold:
+                     Number of error-outcome games per season before triggering
+                     a warning. Default 10.
 
 Usage:
     from engine.engine_config import config
@@ -52,6 +57,8 @@ class EngineConfig:
         self._max_turns = 75
         self._max_actions = 2000
         self._headless_mode = True
+        self._strict_errors = False
+        self._error_budget_threshold = 10
         logger.info("EngineConfig initialized: %d workers, %dMB mem limit, headless=%s",
                      self._max_workers, self._memory_limit_mb, self._headless_mode)
 
@@ -121,6 +128,8 @@ class EngineConfig:
             "max_turns": self._max_turns,
             "max_actions": self._max_actions,
             "headless_mode": self._headless_mode,
+            "strict_errors": self._strict_errors,
+            "error_budget_threshold": self._error_budget_threshold,
         }
 
     def update_from_dict(self, data: dict):
@@ -135,6 +144,30 @@ class EngineConfig:
             self.max_turns = int(data["max_turns"])
         if "max_actions" in data:
             self.max_actions = int(data["max_actions"])
+        if "strict_errors" in data:
+            self.strict_errors = bool(data["strict_errors"])
+        if "error_budget_threshold" in data:
+            self.error_budget_threshold = int(data["error_budget_threshold"])
+
+    @property
+    def strict_errors(self) -> bool:
+        """True = re-raise genuine code bugs instead of catching as Error outcomes."""
+        return self._strict_errors
+
+    @strict_errors.setter
+    def strict_errors(self, value: bool):
+        self._strict_errors = bool(value)
+        logger.info("EngineConfig: strict_errors set to %s", self._strict_errors)
+
+    @property
+    def error_budget_threshold(self) -> int:
+        """Number of error-outcome games before triggering a warning."""
+        return self._error_budget_threshold
+
+    @error_budget_threshold.setter
+    def error_budget_threshold(self, value: int):
+        self._error_budget_threshold = max(1, value)
+        logger.info("EngineConfig: error_budget_threshold set to %d", self._error_budget_threshold)
 
 
 # Module-level singleton

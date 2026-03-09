@@ -82,6 +82,11 @@ class SQLiteDictCursor:
     
     def __exit__(self, *args):
         pass
+    
+    @property
+    def lastrowid(self) -> int:
+        """Return the rowid of the last inserted row (SQLite only)."""
+        return self._cursor.lastrowid
 
 
 class SQLiteConnection:
@@ -367,23 +372,21 @@ def save_deck(name: str, card_list: list[dict], generation: int = 0,
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        if _use_sqlite:
-            cursor.execute('''
-                INSERT INTO decks (name, card_list, generation, parent_ids, colors, archetype)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (name, json.dumps(card_list), generation, json.dumps(parent_ids), colors, archetype))
-            conn.commit()
-            cursor.execute('SELECT last_insert_rowid() as id')
-            return cursor.fetchone()['id']
+        cursor.execute('''
+            INSERT INTO decks (name, card_list, generation, parent_ids, colors, archetype)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+        ''', (name, json.dumps(card_list), generation, json.dumps(parent_ids), colors, archetype))
+        
+        # PG returns the id via RETURNING; SQLite strips it, so use lastrowid
+        row = cursor.fetchone()
+        if row:
+            deck_id = row['id'] if isinstance(row, dict) else row[0]
         else:
-            cursor.execute('''
-                INSERT INTO decks (name, card_list, generation, parent_ids, colors, archetype)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                RETURNING id
-            ''', (name, json.dumps(card_list), generation, json.dumps(parent_ids), colors, archetype))
-            deck_id = cursor.fetchone()[0]
-            conn.commit()
-            return deck_id
+            deck_id = cursor.lastrowid
+        
+        conn.commit()
+        return deck_id
 
 
 def update_card_stats(card_names, won: bool):

@@ -71,6 +71,19 @@ class HeuristicAgent(BaseAgent):
             sorcery_value = (best_sorcery.power or 0) + (3 if best_sorcery.etb_effect else 0) + (2 if best_sorcery.has_haste else 0)
             if sorcery_value < 4:
                 return True  # Low-value sorcery play, better to hold
+        
+        # ── Combat-Phase-Aware Timing ──
+        # Hold instant removal for Begin Combat (remove would-be attackers)
+        # Hold pump spells for Declare Blockers (maximize combat trick value)
+        if game.current_phase in ('Begin Combat', 'Declare Attackers', 'Declare Blockers'):
+            instant_removal = [c for c in instants_in_hand if c.is_removal]
+            instant_pump = [c for c in instants_in_hand if c.is_buff]
+            if game.current_phase == 'Begin Combat' and instant_removal:
+                return False  # Fire removal NOW to prevent attacks
+            if game.current_phase == 'Declare Blockers' and instant_pump:
+                return False  # Fire pump NOW after blocks are declared
+            return True  # Hold for the right phase
+        
         return False
 
     # ── T5: Damage Clock / Racing Awareness ─────────────────────────
@@ -108,6 +121,10 @@ class HeuristicAgent(BaseAgent):
         
         T5 fix: considers hand composition — burn-heavy = aggro,
         counter-heavy = control, regardless of board state.
+        
+        T10 fix: play/draw awareness — on the draw we're a card up but
+        a tempo behind, shifting toward control. On the play we have
+        tempo advantage, shifting toward aggro.
         """
         if getattr(self, 'playstyle', None):
             return self.playstyle
@@ -137,6 +154,16 @@ class HeuristicAgent(BaseAgent):
         
         # Scoring: positive = aggro, negative = control
         role_score = 0
+        
+        # ── Play/Draw Awareness ──
+        # On the play: tempo advantage → lean aggro (deploy threats first)
+        # On the draw: card advantage → lean control (extra card = more answers)
+        starting_player_idx = getattr(game, 'starting_player_index', 0)
+        is_on_play = (game.players.index(player) == starting_player_idx)
+        if is_on_play:
+            role_score += 1  # Tempo advantage — deploy threats
+        else:
+            role_score -= 1  # Card advantage — lean toward answers
         
         # Board position
         if my_power > opp_power + 3: role_score += 2
@@ -809,6 +836,19 @@ class HeuristicAgent(BaseAgent):
                                 return self._score_removal(a, available_mana, other_castables)
                             
                             best_removal = max(affordable_removal, key=removal_value)
+                            
+                            # ── Multi-Spell Sequencing: Removal First ──
+                            # If we can afford both removal + a creature, fire removal first
+                            # to clear the path. This is a fundamental competitive MTG concept.
+                            r_cmc = Player._parse_cmc(best_removal['card'].cost or '') if best_removal['card'].cost else 0
+                            remaining_after_removal = available_mana - r_cmc
+                            if remaining_after_removal > 0:
+                                followup_creatures = [a for a in legal if a['type'] == 'announce_cast' 
+                                                     and a['card'].is_creature
+                                                     and Player._parse_cmc(a['card'].cost or '') <= remaining_after_removal]
+                                if followup_creatures:
+                                    game.log_event(f"  → {player.name}: removal-first sequencing — {best_removal['card'].name} then creature")
+                            
                             game.log_event(f"  → {player.name}: announcing removal for {best_threat.name}")
                             return best_removal
 

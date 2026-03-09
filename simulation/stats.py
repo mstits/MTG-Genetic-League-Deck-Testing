@@ -26,6 +26,7 @@ class GameResult:
     game_log: List[str] = field(default_factory=list)
     snapshots: List[dict] = field(default_factory=list)
     mulligan_counts: dict = field(default_factory=dict)
+    error_type: Optional[str] = None  # Exception class name for Error outcomes
 
 
 class StatsCollector:

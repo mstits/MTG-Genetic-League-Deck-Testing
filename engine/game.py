@@ -440,7 +440,6 @@ class Game:
                 if new_hand:
                     # Sort to find the least useful card to bottom (simplistic: highest cost non-land)
                     def sort_key(c):
-                        from engine.player import Player
                         cmc = Player._parse_cmc(c.cost) if c.cost else 0
                         return (not c.is_land, cmc)
                     new_hand.sort(key=sort_key)
