@@ -32,6 +32,9 @@ from simulation.runner import SimulationRunner
 from agents.heuristic_agent import HeuristicAgent
 from optimizer.genetic import GeneticOptimizer
 from scripts.import_tournament import BOSS_ARCHETYPES
+from agents.sideboard_agent import SideboardAgent
+import copy
+import logging_config  # noqa: F401 — Sets up RotatingFileHandler on import
 
 
 # ─── Color names ──────────────────────────────────────────────
@@ -156,8 +159,19 @@ def run_bo3(deck1, name1, deck2, name2):
     """Run a Best-of-3 match. Returns (winner_name, games_won_1, games_won_2, avg_turns)."""
     w1, w2 = 0, 0
     turns = []
-    for _ in range(3):
-        result = run_match(deck1, name1, deck2, name2)
+    
+    current_deck1 = deck1
+    current_deck2 = deck2
+    
+    for game_num in range(3):
+        if game_num == 1:
+            # Before Game 2, clone decks and sideboard against the specific opponent
+            current_deck1 = copy.deepcopy(deck1)
+            current_deck2 = copy.deepcopy(deck2)
+            SideboardAgent(current_deck1).sideboard_against(deck2)
+            SideboardAgent(current_deck2).sideboard_against(deck1)
+            
+        result = run_match(current_deck1, name1, current_deck2, name2)
         turns.append(result.turns)
         if result.winner == name1:
             w1 += 1

@@ -317,6 +317,105 @@ BOSS_ARCHETYPES = {
             "Mountain": 4, "Den of the Bugbear": 2,
         }
     },
+    # ─── Colorless / Artifact Boss Decks ──────────────────────────────
+    "BOSS:Affinity-Colorless": {
+        "colors": "C",
+        "cards": {
+            "Ornithopter": 4, "Memnite": 4, "Signal Pest": 4,
+            "Vault Skirge": 4, "Thought Monitor": 4,
+            "Cranial Plating": 4, "Springleaf Drum": 4,
+            "Nettlecyst": 3, "Metallic Rebuke": 2,
+            "Thoughtcast": 4,
+            "Darksteel Citadel": 4, "Inkmoth Nexus": 4,
+            "Blinkmoth Nexus": 4, "Glimmervoid": 4,
+            "Spire of Industry": 4, "Treasure Vault": 3,
+        }
+    },
+    "BOSS:EldraziTron-Colorless": {
+        "colors": "C",
+        "cards": {
+            "Thought-Knot Seer": 4, "Reality Smasher": 4,
+            "Matter Reshaper": 4, "Endbringer": 2,
+            "Walking Ballista": 3, "Chalice of the Void": 4,
+            "Expedition Map": 4, "Mind Stone": 4,
+            "Dismember": 3, "All Is Dust": 2,
+            "Urza's Tower": 4, "Urza's Mine": 4,
+            "Urza's Power Plant": 4, "Eldrazi Temple": 4,
+            "Wastes": 4, "Blast Zone": 2,
+            "Cavern of Souls": 3,
+        }
+    },
+    "BOSS:KarnForge-Colorless": {
+        "colors": "C",
+        "cards": {
+            "Karn, Scion of Urza": 4, "Karn, the Great Creator": 3,
+            "Solemn Simulacrum": 4, "Wurmcoil Engine": 3,
+            "Mystic Forge": 4, "Mind Stone": 4,
+            "Hedron Archive": 3, "Ugin, the Spirit Dragon": 2,
+            "Relic of Progenitus": 3, "Oblivion Stone": 2,
+            "Chalice of the Void": 2, "Trinisphere": 1,
+            "Urza's Tower": 4, "Urza's Mine": 4,
+            "Urza's Power Plant": 4, "Wastes": 6,
+            "Blast Zone": 2, "Sanctum of Ugin": 2,
+            "Ghost Quarter": 2,
+        }
+    },
+    # ─── Missing 2-Color Boss Decks ───────────────────────────────────
+    "BOSS:OrzhovTokens-WB": {
+        "colors": "WB",
+        "cards": {
+            "Lingering Souls": 4, "Bitterblossom": 4,
+            "Spectral Procession": 4, "Intangible Virtue": 4,
+            "Fatal Push": 4, "Thoughtseize": 3,
+            "Inquisition of Kozilek": 3, "Path to Exile": 3,
+            "Sorin, Solemn Visitor": 2, "Raise the Alarm": 3,
+            "Godless Shrine": 4, "Concealed Courtyard": 4,
+            "Marsh Flats": 4, "Swamp": 5,
+            "Plains": 5, "Shambling Vent": 2,
+            "Castle Ardenvale": 1,
+        }
+    },
+    "BOSS:DimirMill-UB": {
+        "colors": "UB",
+        "cards": {
+            "Hedron Crab": 4, "Ruin Crab": 4,
+            "Maddening Cacophony": 4, "Archive Trap": 4,
+            "Glimpse the Unthinkable": 4, "Fractured Sanity": 4,
+            "Fatal Push": 4, "Drown in the Loch": 3,
+            "Surgical Extraction": 3, "Visions of Beyond": 4,
+            "Watery Grave": 4, "Darkslick Shores": 4,
+            "Polluted Delta": 4, "Island": 6,
+            "Swamp": 3, "Field of Ruin": 2,
+            "Oboro, Palace in the Clouds": 1,
+        }
+    },
+    "BOSS:SelesnyaCoCo-WG": {
+        "colors": "WG",
+        "cards": {
+            "Collected Company": 4, "Thalia, Guardian of Thraben": 4,
+            "Voice of Resurgence": 4, "Scavenging Ooze": 3,
+            "Loxodon Smiter": 4, "Knight of the Reliquary": 4,
+            "Noble Hierarch": 4, "Qasali Pridemage": 3,
+            "Path to Exile": 4,
+            "Temple Garden": 4, "Windswept Heath": 4,
+            "Razorverge Thicket": 4, "Forest": 6,
+            "Plains": 5, "Gavony Township": 2,
+            "Horizon Canopy": 1,
+        }
+    },
+    "BOSS:GruulAggro-RG": {
+        "colors": "RG",
+        "cards": {
+            "Goblin Guide": 4, "Burning-Tree Emissary": 4,
+            "Reckless Bushwhacker": 4, "Bloodbraid Elf": 4,
+            "Tarmogoyf": 4, "Wild Nacatl": 4,
+            "Lightning Bolt": 4, "Atarka's Command": 4,
+            "Collected Company": 4,
+            "Stomping Ground": 4, "Copperline Gorge": 4,
+            "Wooded Foothills": 4, "Karplusan Forest": 2,
+            "Mountain": 5, "Forest": 5,
+        }
+    },
 }
 
 def import_boss_decks():
@@ -357,13 +456,18 @@ def import_boss_decks():
         
         # Pad with basics if needed
         while total < 60:
-            land_colors = {'W': 'Plains', 'U': 'Island', 'B': 'Swamp', 'R': 'Mountain', 'G': 'Forest'}
-            for c in colors:
-                if total >= 60:
-                    break
-                land = land_colors.get(c, 'Mountain')
-                valid_cards[land] = valid_cards.get(land, 0) + 1
+            land_colors = {'W': 'Plains', 'U': 'Island', 'B': 'Swamp', 'R': 'Mountain', 'G': 'Forest', 'C': 'Wastes'}
+            if colors == 'C':
+                # Colorless: pad with Wastes
+                valid_cards['Wastes'] = valid_cards.get('Wastes', 0) + 1
                 total += 1
+            else:
+                for c in colors:
+                    if total >= 60:
+                        break
+                    land = land_colors.get(c, 'Mountain')
+                    valid_cards[land] = valid_cards.get(land, 0) + 1
+                    total += 1
         
         try:
             deck_id = save_deck(deck_name, valid_cards, generation=0, parent_ids=[], 

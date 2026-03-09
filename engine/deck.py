@@ -59,6 +59,15 @@ class Deck:
         """Total number of cards in the maindeck."""
         return sum(qty for _, qty in self._blueprints)
 
+    @property
+    def canadian_highlander_points(self) -> int:
+        """Total Canadian Highlander points in the maindeck."""
+        return sum(card.canadian_highlander_points * qty for card, qty in self._blueprints if hasattr(card, 'canadian_highlander_points'))
+
+    def is_valid_canadian_highlander(self) -> bool:
+        """A Canadian Highlander deck cannot exceed 10 points."""
+        return self.canadian_highlander_points <= 10
+
     def get_game_deck(self) -> List[Card]:
         """Create fresh, independent card instances for a new game.
 

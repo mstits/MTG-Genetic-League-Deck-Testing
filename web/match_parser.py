@@ -38,8 +38,8 @@ def parse_match_log(log_content):
     # --- Game 1 (26 turns, winner: D2930) ---
     game_header_re = re.compile(r"--- Game (\d+) \((\d+) turns, winner: (.*)\) ---")
     
-    # --- T1 | D5614 (20hp, 7cards, 0lands) vs D2930 (20hp, 7cards, 0lands) ---
-    turn_header_re = re.compile(r"--- T(\d+) \| (.*?) \((\d+)hp, (\d+)cards, (\d+)lands\) vs (.*?) \((\d+)hp, (\d+)cards, (\d+)lands\) ---")
+    # --- T1 | D5614 (20hp, 7cards, 0lands) vs D2930 (20hp, 7cards, 0lands) [WP: 0.55] ---
+    turn_header_re = re.compile(r"--- T(\d+) \| (.*?) \((\d+)hp, (\d+)cards, (\d+)lands\) vs (.*?) \((\d+)hp, (\d+)cards, (\d+)lands\)(?: \[WP: ([\d.]+)\])? ---")
     
     # Board: D5614 [Token (0/3) 0/3] | D2930 [empty]
     # This might match [empty] or [Card A, Card B]
@@ -79,9 +79,12 @@ def parse_match_log(log_content):
                 current_game['turns'].append(current_turn)
             
             # Extract player stats
-            # Groups: 1=TurnNum, 2=P1Name, 3=P1HP, 4=P1Cards, 5=P1Lands, 6=P2Name, 7=P2HP, 8=P2Cards, 9=P2Lands
+            # Groups: 1=TurnNum, 2=P1Name, 3=P1HP, 4=P1Cards, 5=P1Lands, 6=P2Name, 7=P2HP, 8=P2Cards, 9=P2Lands, 10=WinProb
+            wp_str = m_turn.group(10)
+            wp = float(wp_str) if wp_str else 0.5
             current_turn = {
                 "turn_num": int(m_turn.group(1)),
+                "win_prob": wp,
                 "p1": {
                     "name": m_turn.group(2),
                     "hp": int(m_turn.group(3)),
@@ -112,13 +115,9 @@ def parse_match_log(log_content):
             current_turn['p2']['board'] = p2_b
             continue
 
-        # Log Action
-        if current_turn and line.startswith("T"):
-             # T1: Player acts...
-             # Remove "TX: " prefix for cleaner UI?
-             # Or keep it.
-             current_turn['actions'].append(line)
-        elif current_turn and (line.startswith("→") or "deals" in line):
+        # Log Action — capture ALL events between turn headers
+        # (lifelink, prowess, SBA deaths, abilities, tokens, targeting, etc.)
+        if current_turn and not line.startswith("---"):
              current_turn['actions'].append(line)
              
     # Append last turn and game

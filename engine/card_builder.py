@@ -15,6 +15,7 @@ BASIC_LANDS = {
     'Swamp':    {'name': 'Swamp',    'mana_cost': '', 'type_line': 'Basic Land — Swamp',    'oracle_text': '{T}: Add {B}.', 'produced_mana': ['B'], 'color_identity': ['B']},
     'Mountain': {'name': 'Mountain', 'mana_cost': '', 'type_line': 'Basic Land — Mountain', 'oracle_text': '{T}: Add {R}.', 'produced_mana': ['R'], 'color_identity': ['R']},
     'Forest':   {'name': 'Forest',   'mana_cost': '', 'type_line': 'Basic Land — Forest',   'oracle_text': '{T}: Add {G}.', 'produced_mana': ['G'], 'color_identity': ['G']},
+    'Wastes':   {'name': 'Wastes',   'mana_cost': '', 'type_line': 'Basic Land',            'oracle_text': '{T}: Add {C}.', 'produced_mana': ['C'], 'color_identity': []},
 }
 
 

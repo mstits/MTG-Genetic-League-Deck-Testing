@@ -10,6 +10,7 @@ Usage:
     Dashboard: http://localhost:8000 (run web server separately)
 """
 
+import logging_config
 from league.manager import LeagueManager
 from data.db import save_deck, get_db_connection
 from simulation.parallel import seed_decks_parallel
@@ -18,20 +19,25 @@ import time
 import sys
 import os
 
-# All 25 color combinations: 5 mono + 10 two-color + 10 three-color
+# All 32 color combinations: colorless + 5 mono + 10 two-color + 10 three-color + 5 four-color + 5-color
 MONO_COLORS = ["W", "U", "B", "R", "G"]
 TWO_COLORS = ["WU", "WB", "WR", "WG", "UB", "UR", "UG", "BR", "BG", "RG"]
 THREE_COLORS = ["WUB", "WUR", "WBR", "WBG", "WUG", "WRG", "UBR", "UBG", "URG", "BRG"]
+FOUR_COLORS = ["WUBR", "WUBG", "WURG", "WBRG", "UBRG"]
 
-# Decks per color combo — more for popular combos, fewer for 3-color
+# Decks per color combo — more for popular combos, fewer for multi-color
 SEED_COUNTS = {}
+SEED_COUNTS["C"] = 15          # 15 colorless/artifact decks
 for c in MONO_COLORS:
     SEED_COUNTS[c] = 25        # 125 mono decks
 for c in TWO_COLORS:
     SEED_COUNTS[c] = 20        # 200 two-color decks
 for c in THREE_COLORS:
     SEED_COUNTS[c] = 10        # 100 three-color decks
-# Total: ~425 seeded decks + boss decks
+for c in FOUR_COLORS:
+    SEED_COUNTS[c] = 5         # 25 four-color decks
+SEED_COUNTS["WUBRG"] = 5      # 5 five-color decks
+# Total: ~470 seeded decks + boss decks
 
 TARGET_POPULATION = 1000  # Target active population
 
@@ -75,8 +81,26 @@ def seed_initial_decks():
     results = seed_decks_parallel(color_combos_with_counts, all_cards)
     elapsed = time.time() - start
     
-    print(f"  Generated {len(results)} decks in {elapsed:.1f}s")
+    print(f"  Generated {len(results)} random decks in {elapsed:.1f}s")
     
+    # Inject Historical Decks
+    try:
+        historical_path = os.path.join(base_dir, 'data', 'historical_meta.json')
+        with open(historical_path, 'r') as f:
+            historical_data = json.load(f)
+            historical_count = 0
+            for format_name, format_data in historical_data.items():
+                for deck in format_data.get('decks', []):
+                    results.append({
+                        'name': f"{format_name} - {deck['name']}",
+                        'cards': deck['cards'],
+                        'colors': deck.get('colors', '')
+                    })
+                    historical_count += 1
+            print(f"  Injected {historical_count} actual historical decks")
+    except Exception as e:
+        print(f"  ⚠️ Could not load historical decks: {e}")
+        
     # Batch insert to DB
     success = 0
     for deck_data in results:
@@ -95,7 +119,8 @@ def seed_initial_decks():
 
 
 if __name__ == "__main__":
-    sys.stdout.reconfigure(line_buffering=True)
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(line_buffering=True)
     
     print("🏟️  MTG GENETIC LEAGUE — SCALED MODE")
     print("=" * 50)

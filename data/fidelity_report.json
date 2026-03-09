@@ -1,0 +1,106 @@
+{
+  "total_scenarios": 102,
+  "total_replays": 102,
+  "passed": 97,
+  "failed": 5,
+  "duration_seconds": 0.8503129482269287,
+  "timestamp": "2026-03-05T12:25:00",
+  "all_passed": false,
+  "failures": [
+    {
+      "scenario_id": "L7-001",
+      "scenario_name": "Counter + Anthem Stacking",
+      "passed": false,
+      "rule_refs": [
+        "613.4c",
+        "613.4d"
+      ],
+      "expected": {
+        "power": 4,
+        "toughness": 4
+      },
+      "actual": {
+        "power": 5,
+        "toughness": 5
+      },
+      "deviation": "P/T mismatch: counter + anthem",
+      "replay_index": 0,
+      "variation": "seed=0"
+    },
+    {
+      "scenario_id": "L7-004",
+      "scenario_name": "Equipment + Anthem",
+      "passed": false,
+      "rule_refs": [
+        "613.4d"
+      ],
+      "expected": {
+        "power": 5,
+        "toughness": 3
+      },
+      "actual": {
+        "power": 7,
+        "toughness": 3
+      },
+      "deviation": "Equipment + anthem calc wrong",
+      "replay_index": 0,
+      "variation": "seed=0"
+    },
+    {
+      "scenario_id": "L7-008",
+      "scenario_name": "Anthem Removal Kills 0-Toughness",
+      "passed": false,
+      "rule_refs": [
+        "704.5f",
+        "613.4d"
+      ],
+      "expected": {
+        "spirit_alive": false
+      },
+      "actual": {
+        "spirit_alive": true
+      },
+      "deviation": "0/0 token survived anthem removal",
+      "replay_index": 0,
+      "variation": "seed=0"
+    },
+    {
+      "scenario_id": "L7-009",
+      "scenario_name": "Full Layer Chain",
+      "passed": false,
+      "rule_refs": [
+        "613.4"
+      ],
+      "expected": {
+        "power": 6,
+        "toughness": 4
+      },
+      "actual": {
+        "power": 15,
+        "toughness": 9
+      },
+      "deviation": "Full P/T layer chain miscalc",
+      "replay_index": 0,
+      "variation": "seed=0"
+    },
+    {
+      "scenario_id": "L7-012",
+      "scenario_name": "Triple Source P/T Stack",
+      "passed": false,
+      "rule_refs": [
+        "613.4d"
+      ],
+      "expected": {
+        "power": 6,
+        "toughness": 3
+      },
+      "actual": {
+        "power": 12,
+        "toughness": 3
+      },
+      "deviation": "Triple-source P/T stacking error",
+      "replay_index": 0,
+      "variation": "seed=0"
+    }
+  ]
+}

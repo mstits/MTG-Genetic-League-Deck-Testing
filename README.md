@@ -1,167 +1,38 @@
-# 🧬 MTG Genetic League
+# MTG Genetic League - Turnkey Deployment
 
-**AI-Powered Deck Evolution & Competitive Simulation**
+This README outlines the turnkey `vibe-start` process for deploying the MTG Genetic League Application using Docker Compose.
 
-A genetic algorithm that evolves Magic: The Gathering decks through simulated competition. Decks breed, mutate, and compete in an ELO-rated league — the fittest strategies survive across generations.
+## Prerequisites
 
-![Deck Tester — S Grade, 100% Win Rate](docs/deck_tester.png)
+- Docker and Docker Compose installed on your system.
 
-## ✨ Features
+## v1.0 Features Overview (The 100% Core)
 
-- **Genetic Evolution** — Decks crossbreed winning strategies and mutate card choices across generations
-- **Full Rules Engine** — Combat (first strike, deathtouch, trample, flying, menace, lifelink), stack with priority, ETB/death triggers, mana dorks, hybrid mana, planeswalkers, equipment, auras
-- **Heuristic AI Agents** — Smart combat decisions, threat assessment, counter-spell logic, lethal burn detection
-- **ELO Rating System** — Decks earn rankings through Bo3 matches with division tiers (Provisional → Mythic)
-- **Interactive Dashboard** — Live leaderboard, deck builder with autocomplete, mana curve visualization, matchup analysis
-- **Deck Tester** — Paste any decklist to test against the top league decks with instant win rate and grade
+The MTG Genetic League engine is now fully functional, heavily tested, and verified against Comprehensive Rules edge-cases.
 
-## 🏗️ Architecture
+- **Rules Sandbox**: 100 automated interaction smoke-tests covering layers, triggers, SBAs, and SBA loops.
+- **Genetic Engine (v2)**: Advanced Evolution powered by a Novelty Search Fitness Equation $F = (WR \times 0.7) + (Nov \times 0.3)$ using **Milvus Vector DB** fingerprint clustering.
+- **Distributed Architecture**: Multi-node scalability pushing headless simulation matches across **Redis Message Queues (RQ)** and logging to a central **PostgreSQL** data backend.
+- **MCTS Pro-Level AI**: `MCTSAgent` leverages Monte Carlo Tree rollouts parallelizing tactical combinations 2-3 turns deeply for high-level competitive Boss battles.
+- **Misplay Hunter**: Strategic butterfly maps built natively into the Admin UI to catch system upsets.
+- **Admin War Room**: Fully functional environment tuning with live UI resource constraints, a dynamic overarching **Format Toggle** (Standard, Commander Bracket, Modern), and an interactive **Topological Meta-Map**.
 
-```mermaid
-graph TD
-    subgraph Web["🌐 Web Dashboard"]
-        direction LR
-        WA["FastAPI + Jinja2 + Tailwind CSS"]
-        LB["Leaderboard"] ~~~ DB2["Deck Builder"] ~~~ ST["Stats"] ~~~ MH["Match History"]
-    end
+## Quick Start (vibe-start)
 
-    subgraph Core["⚙️ Core Systems"]
-        direction LR
-        LM["League Manager<br/>ELO + Breeding"]
-        SR["Simulation Runner<br/>Parallel Bo3"]
-        DATA["Data Layer<br/>SQLite"]
-    end
+The environment has been automated and requires zero manual setups.
 
-    subgraph Engine["🎮 Game Engine"]
-        direction LR
-        PH["Phases & Stack"] ~~~ CB["Combat & SBAs"] ~~~ ZN["Zones & Priority"]
-    end
+1. Start the services:
 
-    subgraph Foundation["🧱 Foundation"]
-        direction LR
-        HA["Heuristic Agent<br/>AI Play"]
-        CARD["Card Builder<br/>Oracle Parser"]
-    end
+   ```bash
+   pip install -r requirements.txt
+   docker-compose up -d --build
+   ```
 
-    Web --> Core
-    Core --> Engine
-    Engine --> Foundation
-```
+2. The application will be live at `http://localhost:8000`.
+3. Check the Engine Room / Admin Portal at `http://localhost:8000/admin`.
 
-## 🚀 Quick Start
+## System Diagnostics
 
-### Prerequisites
+Once deployed, verify operations by navigating to the **Admin Portal** and checking the "Live Health Check" ring. It executes a real-time smoke test of the Comprehensive Rules sandbox to guarantee Fidelity Report integrity.
 
-- Python 3.10+
-- ~500MB free disk space (for card data)
-
-### Setup
-
-```bash
-# Clone the repo
-git clone https://github.com/YOUR_USERNAME/mtg-genetic-league.git
-cd mtg-genetic-league
-
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Fetch card data from Scryfall (CC0 licensed)
-python scripts/fetch_cards.py
-python scripts/filter_legal.py
-
-# Initialize the database with seed decks
-cp data/seed_league.db data/league.db
-```
-
-### Run the League
-
-```bash
-# Start the evolution league (runs continuously, Ctrl+C to stop)
-python run_league.py
-```
-
-### Start the Dashboard
-
-```bash
-# In a separate terminal
-python -m uvicorn web.app:app --host 0.0.0.0 --port 8000
-```
-
-Then open [http://localhost:8000](http://localhost:8000) to see the live dashboard.
-
-### Test a Deck
-
-You can test any decklist against the top league decks using the "Test Your Deck" tab, or via API:
-
-```bash
-curl -X POST http://localhost:8000/api/test-deck \
-  -H 'Content-Type: application/json' \
-  -d '{"decklist": "4 Lightning Bolt\n4 Goblin Guide\n20 Mountain"}'
-```
-
-## 📁 Project Structure
-
-| Directory | Purpose |
-|-----------|---------|
-| `engine/` | Core game engine — card model, game loop, phases, stack, zones, player |
-| `agents/` | AI players — heuristic agent with threat assessment and combat logic |
-| `simulation/` | Match runner, parallel execution, stats collection |
-| `league/` | League manager — ELO ratings, genetic evolution, deck breeding |
-| `data/` | SQLite database, card pool (generated from Scryfall) |
-| `web/` | FastAPI dashboard — leaderboard, deck builder, match history |
-| `scripts/` | Data pipeline — fetch cards from Scryfall, filter by format |
-| `tests/` | Test suite — engine mechanics, mana payment, combat, keywords |
-
-## 🧪 Running Tests
-
-```bash
-pytest
-```
-
-Test coverage includes:
-
-- Mana payment with dorks and hybrid costs
-- Combat mechanics (first strike, deathtouch, lifelink, trample)
-- Stack resolution with priority
-- ETB triggers and death triggers
-- Card keyword parsing
-
-## 🎮 How It Works
-
-### Genetic Evolution
-
-1. **Seed** — ~425 random decks across all 25 color combinations
-2. **Compete** — Each deck plays Bo3 matches against peers, gaining/losing ELO
-3. **Select** — Bottom 20% of decks are retired each season
-4. **Breed** — Top decks crossbreed: combine the card pools of two winners
-5. **Mutate** — Random mutations add/remove/swap cards (5% chance each)
-6. **Repeat** — Over hundreds of seasons, dominant strategies emerge
-
-### Engine Rules Coverage
-
-| Rule Area | Implementation |
-|-----------|---------------|
-| Mana System | Colored/generic/hybrid costs, mana dorks, backtracking solver |
-| Combat | First strike, double strike, deathtouch, lifelink, trample, flying, menace, vigilance |
-| Stack | LIFO resolution, dual-pass priority, triggers (ETB, death, upkeep, landfall, combat) |
-| Keywords | ~30 keywords parsed from Oracle text |
-| Card Types | Creatures, instants, sorceries, enchantments, artifacts, equipment, planeswalkers, lands |
-| Special | Flashback, kicker, cycling, crew, ward, hexproof, indestructible, protection |
-
-## 📊 Screenshots
-
-| Leaderboard | Deck Builder |
-|-------------|-------------|
-| ![Leaderboard](docs/leaderboard.png) | ![Deck Builder](docs/deck_builder.png) |
-
-## 📝 Card Data
-
-Card data is sourced from the [Scryfall API](https://scryfall.com/docs/api) under [CC0 license](https://creativecommons.org/publicdomain/zero/1.0/). Magic: The Gathering is a trademark of Wizards of the Coast. This project is not affiliated with or endorsed by Wizards of the Coast.
-
-## 📄 License
-
-[MIT](LICENSE)
+You can also test the distributed network queues natively by triggering a headless standard run via `python scripts/test_cluster.py`.

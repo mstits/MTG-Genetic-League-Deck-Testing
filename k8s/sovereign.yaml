@@ -1,0 +1,146 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sovereign-orchestrator
+  labels:
+    app: sovereign
+    component: orchestrator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sovereign
+      component: orchestrator
+  template:
+    metadata:
+      labels:
+        app: sovereign
+        component: orchestrator
+    spec:
+      containers:
+      - name: sovereign
+        image: mtg-sovereign:latest
+        command: ["python", "sovereign.py"]
+        args: ["--format", "standard", "--generations", "50", "--population", "100"]
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "2"
+          limits:
+            memory: "4Gi"
+            cpu: "4"
+        env:
+        - name: REDIS_URL
+          value: "redis://redis:6379"
+        - name: NUM_WORKERS
+          value: "8"
+        volumeMounts:
+        - name: data
+          mountPath: /app/data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: sovereign-data
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sovereign-worker
+  labels:
+    app: sovereign
+    component: worker
+spec:
+  replicas: 8
+  selector:
+    matchLabels:
+      app: sovereign
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: sovereign
+        component: worker
+    spec:
+      containers:
+      - name: worker
+        image: mtg-sovereign:latest
+        command: ["python", "worker.py"]
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1"
+        env:
+        - name: REDIS_URL
+          value: "redis://redis:6379"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+spec:
+  selector:
+    app: sovereign
+    component: redis
+  ports:
+  - port: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  labels:
+    app: sovereign
+    component: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sovereign
+      component: redis
+  template:
+    metadata:
+      labels:
+        app: sovereign
+        component: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            memory: "256Mi"
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: sovereign-worker-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: sovereign-worker
+  minReplicas: 4
+  maxReplicas: 32
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sovereign-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

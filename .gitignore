@@ -33,6 +33,14 @@ data/legal_cards.json
 # Database backups and runtime DB (users copy seed_league.db → league.db)
 data/*.bak
 data/league.db
+data/sovereign.db
+data/sovereign_results.json
+data/mulligan_model.npz
+
+# Root-level scratch files
+*.png
+test_*.py
+test_*.js
 
 # Copyrighted material (not included in repo)
 MagicCompRules*.pdf

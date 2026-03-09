@@ -15,7 +15,7 @@ The dashboard uses Tailwind CSS for styling and vanilla JavaScript for
 interactivity (tab switching, deck builder, card search autocomplete).
 """
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 import uvicorn
@@ -32,10 +32,59 @@ app = FastAPI(title="MTG Genetic League", description="AI-powered deck evolution
 from starlette.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Restrict to specific domains in production
+    allow_origins=["*", "http://localhost:3000"],  # Next.js dev server
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+
+# ─── WebSocket: Real-Time ELO Streaming ──────────────────────────────────────
+
+_ws_clients: list[WebSocket] = []
+
+
+@app.websocket("/ws/elo-stream")
+async def elo_stream(websocket: WebSocket):
+    """Stream live ELO updates as matches complete.
+
+    Clients connect and receive JSON messages:
+    {
+        "type": "elo_update",
+        "deck_id": 42,
+        "deck_name": "Burn-R-Gen3",
+        "old_elo": 1234.5,
+        "new_elo": 1251.2,
+        "delta": 16.7,
+        "match_id": 789,
+        "timestamp": "2026-02-22T14:30:00"
+    }
+    """
+    await websocket.accept()
+    _ws_clients.append(websocket)
+    try:
+        while True:
+            # Keep alive — client can send pings
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        _ws_clients.remove(websocket)
+    except Exception:
+        if websocket in _ws_clients:
+            _ws_clients.remove(websocket)
+
+
+async def broadcast_elo_update(data: dict):
+    """Push ELO update to all connected WebSocket clients.
+
+    Called by the league manager after each match ELO adjustment.
+    """
+    disconnected = []
+    for ws in _ws_clients:
+        try:
+            await ws.send_json(data)
+        except Exception:
+            disconnected.append(ws)
+    for ws in disconnected:
+        _ws_clients.remove(ws)
 
 # Simple in-memory rate limiter for CPU-intensive endpoints
 import time as _time
@@ -68,14 +117,86 @@ from optimizer.genetic import parse_cmc
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
+    """Render the main dashboard overview page."""
     return templates.TemplateResponse("index.html", {"request": request})
+
+@app.get("/api/admin/meta-map")
+async def get_meta_map():
+    """Returns 2D projected coordinates of deck fingerprints via PCA.
+    
+    Builds sparse card-count vectors from each deck's card_list in SQLite,
+    then projects to 2D using PCA. No external vector DB required.
+    """
+    try:
+        from sklearn.decomposition import PCA
+        import numpy as np
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, name, colors, elo, card_list FROM decks WHERE active=1')
+            decks = [dict(row) for row in cursor.fetchall()]
+        
+        if len(decks) < 3:
+            return {"points": []}
+        
+        # Build card vocabulary from all decks
+        all_cards = set()
+        deck_cards = []
+        for d in decks:
+            try:
+                cl = json.loads(d['card_list'])
+                if isinstance(cl, list):
+                    counts = {}
+                    for n in cl:
+                        counts[n] = counts.get(n, 0) + 1
+                    cl = counts
+            except:
+                cl = {}
+            deck_cards.append(cl)
+            all_cards.update(cl.keys())
+        
+        card_vocab = sorted(all_cards)
+        card_idx = {name: i for i, name in enumerate(card_vocab)}
+        
+        # Build feature matrix (deck x card_count)
+        X = np.zeros((len(decks), len(card_vocab)), dtype=np.float32)
+        for i, cl in enumerate(deck_cards):
+            for name, count in cl.items():
+                if name in card_idx:
+                    X[i, card_idx[name]] = count
+        
+        # Normalize rows (L2) so deck size doesn't dominate
+        norms = np.linalg.norm(X, axis=1, keepdims=True)
+        norms[norms == 0] = 1
+        X = X / norms
+        
+        # PCA to 2D
+        pca = PCA(n_components=2)
+        X_2d = pca.fit_transform(X)
+        
+        points = []
+        for i, d in enumerate(decks):
+            points.append({
+                "x": float(X_2d[i][0]),
+                "y": float(X_2d[i][1]),
+                "id": d['id'],
+                "name": d['name'],
+                "colors": d.get('colors', ''),
+                "elo": float(d['elo'])
+            })
+        
+        return {"points": points}
+    except Exception as e:
+        print(f"Meta-Map Error: {e}")
+        return {"points": []}
 
 @app.get("/api/leaderboard", response_class=HTMLResponse)
 async def get_leaderboard(request: Request):
+    """Render the HTML fragment for the ranked deck leaderboard."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT id, name, division, wins, losses, draws, elo, colors 
+            SELECT id, name, division, wins, losses, draws, elo, colors, card_list 
             FROM decks 
             WHERE active=1 
             ORDER BY elo DESC 
@@ -83,6 +204,9 @@ async def get_leaderboard(request: Request):
         ''')
         decks = [dict(row) for row in cursor.fetchall()]
         
+    from engine.salt_score import calculate_salt_score
+    import json
+    
     html = ""
     for i, d in enumerate(decks):
         decisive = d['wins'] + d['losses']
@@ -90,7 +214,20 @@ async def get_leaderboard(request: Request):
         draws = d.get('draws', 0) or 0
         colors = d.get('colors', '') or ''
         
-        color_map = {'W': '⬜', 'U': '🔵', 'B': '⚫', 'R': '🔴', 'G': '🟢'}
+        try:
+            decklist = json.loads(d.get('card_list') or '{}')
+        except:
+            decklist = {}
+            
+        bracket = calculate_salt_score(decklist).get('bracket', 1)
+        
+        color_map = {
+            'W': '<i class="ms ms-w ms-cost ms-shadow text-base"></i>',
+            'U': '<i class="ms ms-u ms-cost ms-shadow text-base"></i>',
+            'B': '<i class="ms ms-b ms-cost ms-shadow text-base"></i>',
+            'R': '<i class="ms ms-r ms-cost ms-shadow text-base"></i>',
+            'G': '<i class="ms ms-g ms-cost ms-shadow text-base"></i>'
+        }
         color_badges = ''.join(color_map.get(c, '') for c in colors)
         
         div_colors = {
@@ -105,11 +242,12 @@ async def get_leaderboard(request: Request):
         is_boss = "BOSS:" in d['name']
         name_cls = "text-red-400 font-bold" if is_boss else "text-blue-400 font-medium"
         
-        # Archetype from name
-        arch = ""
-        if "-A-" in d['name']: arch = "🗡️"
-        elif "-M-" in d['name']: arch = "⚖️"
-        elif "-C-" in d['name']: arch = "🛡️"
+        # Archetype classification — real analysis instead of name guessing
+        from engine.archetype_classifier import classify_deck
+        cache = _get_card_search_cache() or []
+        card_pool_dict = {c['name']: c for c in cache} if isinstance(cache, list) else cache
+        arch_info = classify_deck(decklist, card_pool_dict)
+        arch_emoji = {"Aggro": "🗡️", "Control": "🛡️", "Combo": "⚡", "Midrange": "⚖️"}.get(arch_info['archetype'], "")
         
         # Row background based on rank
         if i < 3:
@@ -122,8 +260,9 @@ async def get_leaderboard(request: Request):
         html += f"""
         <tr class="{row_cls}" onclick="window.location.href='/deck/{d['id']}'">
             <td class="p-3 text-gray-500">{i+1}</td>
-            <td class="p-3 {name_cls}">{arch} {safe_name}</td>
+            <td class="p-3 {name_cls}">{arch_emoji} {safe_name}</td>
             <td class="p-3">{color_badges}</td>
+            <td class="p-3 text-center font-bold text-gray-300">🧂 {bracket}</td>
             <td class="p-3"><span class="px-2 py-1 rounded-full text-xs {div_cls}">{safe_div}</span></td>
             <td class="p-3 font-mono font-bold text-white">{d['elo']:.0f}</td>
             <td class="p-3 text-sm text-gray-300">{d['wins']}W-{d['losses']}L<span class="text-gray-500">-{draws}D</span></td>
@@ -134,6 +273,7 @@ async def get_leaderboard(request: Request):
 
 @app.get("/api/top-cards", response_class=HTMLResponse)
 async def get_top_cards_api(request: Request):
+    """Render the HTML fragment showing the cards with the highest win rates."""
     import urllib.parse
     cards = get_top_cards(min_matches=5, limit=30)
     
@@ -210,7 +350,13 @@ async def get_meta(request: Request):
     pool_count = pool_meta.get('total_cards', '?')
     pool_format = pool_meta.get('format', 'modern').title()
     
-    color_map = {'W': '⚪', 'U': '🔵', 'B': '⚫', 'R': '🔴', 'G': '🟢'}
+    color_map = {
+        'W': '<i class="ms ms-w ms-cost ms-shadow text-base"></i>',
+        'U': '<i class="ms ms-u ms-cost ms-shadow text-base"></i>',
+        'B': '<i class="ms ms-b ms-cost ms-shadow text-base"></i>',
+        'R': '<i class="ms ms-r ms-cost ms-shadow text-base"></i>',
+        'G': '<i class="ms ms-g ms-cost ms-shadow text-base"></i>'
+    }
     decisive_pct = f"{decisive/total_matches*100:.0f}" if total_matches > 0 else "0"
     
     html = f"""
@@ -256,7 +402,7 @@ async def get_meta(request: Request):
     
     for cs in color_stats:
         if not cs['colors']:
-            badges = "🔘"
+            badges = '<i class="ms ms-c ms-cost ms-shadow text-base"></i>'
             c_disp = "Colorless"
         else:
             badges = ''.join(color_map.get(c, '') for c in cs['colors'])
@@ -280,6 +426,7 @@ async def get_meta(request: Request):
 
 @app.get("/api/match-history", response_class=HTMLResponse)
 async def get_match_history(request: Request):
+    """Render the HTML fragment for recent Bo3 match history logs."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -319,6 +466,7 @@ async def get_match_history(request: Request):
 
 @app.get("/api/stats", response_class=HTMLResponse)
 async def get_stats(request: Request):
+    """Render the overall league statistics HTML fragment (win rates, Elo averages)."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT COUNT(*) as total FROM decks WHERE active=1')
@@ -332,11 +480,42 @@ async def get_stats(request: Request):
         current_season = row['s'] if row['s'] else 0
         cursor.execute('SELECT COUNT(*) as c FROM matches WHERE winner_id IS NOT NULL')
         decisive = cursor.fetchone()['c']
+        cursor.execute('SELECT SUM(play_wins) as p, SUM(draw_wins) as d FROM decks')
+        play_draw = cursor.fetchone()
+        p_wins = play_draw['p'] or 0
+        d_wins = play_draw['d'] or 0
+        
+        cursor.execute('''
+            SELECT 
+                SUM(CASE WHEN p1_mulligans = 0 AND winner_id = deck1_id THEN 1 ELSE 0 END) + 
+                SUM(CASE WHEN p2_mulligans = 0 AND winner_id = deck2_id THEN 1 ELSE 0 END) as w7,
+                SUM(CASE WHEN p1_mulligans = 0 THEN 1 ELSE 0 END) + 
+                SUM(CASE WHEN p2_mulligans = 0 THEN 1 ELSE 0 END) as t7,
+                
+                SUM(CASE WHEN p1_mulligans = 1 AND winner_id = deck1_id THEN 1 ELSE 0 END) + 
+                SUM(CASE WHEN p2_mulligans = 1 AND winner_id = deck2_id THEN 1 ELSE 0 END) as w6,
+                SUM(CASE WHEN p1_mulligans = 1 THEN 1 ELSE 0 END) + 
+                SUM(CASE WHEN p2_mulligans = 1 THEN 1 ELSE 0 END) as t6,
+                
+                SUM(CASE WHEN p1_mulligans >= 2 AND winner_id = deck1_id THEN 1 ELSE 0 END) + 
+                SUM(CASE WHEN p2_mulligans >= 2 AND winner_id = deck2_id THEN 1 ELSE 0 END) as w5,
+                SUM(CASE WHEN p1_mulligans >= 2 THEN 1 ELSE 0 END) + 
+                SUM(CASE WHEN p2_mulligans >= 2 THEN 1 ELSE 0 END) as t5
+            FROM matches
+            WHERE winner_id IS NOT NULL
+        ''')
+        mulls = cursor.fetchone()
     
     decisive_pct = f"{decisive/total_matches*100:.0f}" if total_matches > 0 else "0"
+    total_pd = p_wins + d_wins
+    play_winrate = f"{p_wins/total_pd*100:.1f}%" if total_pd > 0 else "N/A"
+    
+    wr7 = f"{(mulls['w7'] or 0) / max(mulls['t7'] or 1, 1) * 100:.1f}"
+    wr6 = f"{(mulls['w6'] or 0) / max(mulls['t6'] or 1, 1) * 100:.1f}"
+    wr5 = f"{(mulls['w5'] or 0) / max(mulls['t5'] or 1, 1) * 100:.1f}"
     
     html = f"""
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div class="bg-gray-800/80 rounded-xl border border-gray-700 p-4 text-center group cursor-pointer" onclick="window.location.href='/decks?active=1'">
             <div class="text-3xl font-bold text-blue-400 group-hover:text-blue-300 transition-colors">{total_decks}</div>
             <div class="text-sm text-gray-400 mt-1">Active Decks</div>
@@ -353,6 +532,31 @@ async def get_stats(request: Request):
             <div class="text-3xl font-bold text-orange-400 group-hover:text-orange-300 transition-colors">{current_season}</div>
             <div class="text-sm text-gray-400 mt-1">Season</div>
         </div>
+        <div class="bg-gray-800/80 rounded-xl border border-gray-700 p-4 text-center">
+            <div class="text-3xl font-bold text-teal-400">{play_winrate}</div>
+            <div class="text-sm text-gray-400 mt-1">Play Win Rate</div>
+        </div>
+    </div>
+    
+    <div class="mt-6 bg-gray-800/80 rounded-xl border border-gray-700 p-4">
+        <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-widest mb-4">Mulligan Win Rates (Game 1)</h3>
+        <div class="grid grid-cols-3 gap-4 text-center">
+            <div>
+                <div class="text-2xl font-bold text-blue-400">{wr7}%</div>
+                <div class="text-xs text-gray-500">Keep 7</div>
+                <div class="text-[10px] text-gray-600">({mulls['w7'] or 0}/{mulls['t7'] or 0})</div>
+            </div>
+            <div>
+                <div class="text-2xl font-bold text-yellow-400">{wr6}%</div>
+                <div class="text-xs text-gray-500">Mull to 6</div>
+                <div class="text-[10px] text-gray-600">({mulls['w6'] or 0}/{mulls['t6'] or 0})</div>
+            </div>
+            <div>
+                <div class="text-2xl font-bold text-red-500">{wr5}%</div>
+                <div class="text-xs text-gray-500">Mull to 5-</div>
+                <div class="text-[10px] text-gray-600">({mulls['w5'] or 0}/{mulls['t5'] or 0})</div>
+            </div>
+        </div>
     </div>
     """
     return html
@@ -360,6 +564,7 @@ async def get_stats(request: Request):
 
 @app.get("/deck/{deck_id}", response_class=HTMLResponse)
 async def view_deck(request: Request, deck_id: int):
+    """Render the dedicated page detailing a specific genetic deck's composition and history."""
     # Load card pool for CMC data
     import os as _os
     base = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
@@ -374,7 +579,7 @@ async def view_deck(request: Request, deck_id: int):
     
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM decks WHERE id = ?', (deck_id,))
+        cursor.execute('SELECT * FROM decks WHERE id = %s', (deck_id,))
         row = cursor.fetchone()
         if not row:
             return HTMLResponse("<h1>Deck Not Found</h1>", status_code=404)
@@ -450,6 +655,19 @@ async def view_deck(request: Request, deck_id: int):
                 'has_etb': has_etb,
             }
         
+        # Game 1 Stats
+        cursor.execute('SELECT COUNT(*) as c FROM matches WHERE deck1_id = %s OR deck2_id = %s', (deck_id, deck_id))
+        total_p_matches = cursor.fetchone()['c']
+        cursor.execute('SELECT COUNT(*) as c FROM matches WHERE game1_winner_id = %s', (deck_id,))
+        game1_wins = cursor.fetchone()['c']
+        
+        deck['total_matches'] = total_p_matches
+        deck['game1_wins'] = game1_wins
+        if total_p_matches > 0:
+            deck['game1_winrate'] = f"{game1_wins / total_p_matches * 100:.1f}%"
+        else:
+            deck['game1_winrate'] = "N/A"
+            
         # Recent matches
         cursor.execute('''
             SELECT m.id as match_id, m.turns, m.timestamp,
@@ -459,18 +677,43 @@ async def view_deck(request: Request, deck_id: int):
             JOIN decks d1 ON m.deck1_id = d1.id
             JOIN decks d2 ON m.deck2_id = d2.id
             LEFT JOIN decks w ON m.winner_id = w.id
-            WHERE m.deck1_id = ? OR m.deck2_id = ?
+            WHERE m.deck1_id = %s OR m.deck2_id = %s
             ORDER BY m.timestamp DESC
             LIMIT 15
         ''', (deck_id, deck_id))
         matches = [dict(row) for row in cursor.fetchall()]
         
+        # T10: Matchup Spread — win% by opponent archetype
+        matchup_spread = []
+        try:
+            cursor.execute('''
+                SELECT 
+                    COALESCE(d_opp.archetype, 'Unknown') as archetype,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN m.winner_id = %s THEN 1 ELSE 0 END) as wins
+                FROM matches m
+                JOIN decks d_opp ON d_opp.id = CASE 
+                    WHEN m.deck1_id = %s THEN m.deck2_id 
+                    ELSE m.deck1_id END
+                WHERE m.deck1_id = %s OR m.deck2_id = %s
+                GROUP BY COALESCE(d_opp.archetype, 'Unknown')
+                ORDER BY total DESC
+            ''', (deck_id, deck_id, deck_id, deck_id))
+            for row in cursor.fetchall():
+                r = dict(row)
+                r['win_rate'] = round(r['wins'] / max(r['total'], 1) * 100, 1)
+                matchup_spread.append(r)
+        except Exception:
+            pass  # Graceful fallback if archetype column missing
+        
     return templates.TemplateResponse("deck.html", {
-        "request": request, "deck": deck, "matches": matches, "card_info": card_info
+        "request": request, "deck": deck, "matches": matches, 
+        "card_info": card_info, "matchup_spread": matchup_spread
     })
 
 @app.get("/match/{match_id}", response_class=HTMLResponse)
 async def view_match(request: Request, match_id: int):
+    """Render the detailed view of a specific match log."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -482,7 +725,7 @@ async def view_match(request: Request, match_id: int):
             JOIN decks d1 ON m.deck1_id = d1.id
             JOIN decks d2 ON m.deck2_id = d2.id
             LEFT JOIN decks w ON m.winner_id = w.id
-            WHERE m.id = ?
+            WHERE m.id = %s
         ''', (match_id,))
         row = cursor.fetchone()
         if not row:
@@ -778,6 +1021,78 @@ async def test_deck(request: Request):
         return JSONResponse({"error": f"Internal Server Error: {str(e)}"}, status_code=500)
 
 
+@app.post("/api/flex-test")
+async def flex_test(request: Request):
+    """Test flex slots against Gauntlet bosses to find mathematically optimal configurations."""
+    client_ip = request.client.host if request.client else "unknown"
+    if not _check_rate_limit(client_ip):
+        return JSONResponse({"error": "Rate limit exceeded. Please wait 60 seconds."}, status_code=429)
+        
+    try:
+        body = await request.json()
+        raw_core = body.get('core_decklist', '')
+        raw_flex = body.get('flex_pool', '')
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON mapping"}, status_code=400)
+        
+    core_cards = _parse_decklist(raw_core)
+    flex_pool = list(_parse_decklist(raw_flex).keys())
+    
+    if sum(core_cards.values()) > 59:
+        return JSONResponse({"error": f"Core deck already {sum(core_cards.values())} cards. Must be < 60 to have flex slots."}, status_code=400)
+    if not flex_pool:
+        return JSONResponse({"error": "Flex pool cannot be empty."}, status_code=400)
+        
+    from simulation.flex_tester import FlexTester
+    try:
+        tester = FlexTester(core_deck=core_cards, flex_pool=flex_pool)
+        results = tester.run_tests()
+        return JSONResponse({"results": results})
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": f"Internal Error: {str(e)}"}, status_code=500)
+
+
+@app.post("/api/mana-calc")
+async def mana_calc(request: Request):
+    """Analyze decklist mana base using Frank Karsten's hypergeometric math."""
+    try:
+        body = await request.json()
+        raw_decklist = body.get('decklist', '')
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+        
+    deck_dict = _parse_decklist(raw_decklist)
+    if not deck_dict:
+        return JSONResponse({"error": "Empty or invalid decklist."}, status_code=400)
+        
+    # Load card pool
+    data_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'legal_cards.json')
+    if not os.path.exists(data_path):
+        data_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'processed_cards.json')
+        
+    card_pool = {}
+    if os.path.exists(data_path):
+        with open(data_path, 'r') as f:
+            for c in json.load(f):
+                card_pool[c['name']] = c
+                
+    from engine.card_builder import inject_basic_lands
+    inject_basic_lands(card_pool)
+    
+    from utils.hypergeometric import evaluate_deck_mana
+    try:
+        results = evaluate_deck_mana(deck_dict, card_pool)
+        return JSONResponse({"results": results})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": f"Internal Error: {str(e)}"}, status_code=500)
+
+
 # ─── Matchup Matrix: archetype vs archetype win rates ─────────────────────
 
 @app.get("/api/matchups", response_class=HTMLResponse)
@@ -818,7 +1133,14 @@ async def get_matchups(request: Request):
             matrix[key]['wins'] += r['c1_wins']
             matrix[key]['games'] += r['games']
     
-    color_map = {'W': '⬜', 'U': '🔵', 'B': '⚫', 'R': '🔴', 'G': '🟢'}
+    color_map = {
+        'W': '<i class="ms ms-w ms-cost ms-shadow text-base"></i>',
+        'U': '<i class="ms ms-u ms-cost ms-shadow text-base"></i>',
+        'B': '<i class="ms ms-b ms-cost ms-shadow text-base"></i>',
+        'R': '<i class="ms ms-r ms-cost ms-shadow text-base"></i>',
+        'G': '<i class="ms ms-g ms-cost ms-shadow text-base"></i>',
+        'C': '<i class="ms ms-c ms-cost ms-shadow text-base"></i>'
+    }
     
     def color_label(c):
         icons = ''.join(color_map.get(ch, '') for ch in c)
@@ -859,17 +1181,72 @@ async def get_matchups(request: Request):
     return html
 
 
+@app.get("/api/matchup-matrix")
+async def get_matchup_matrix_json():
+    """JSON matchup matrix for the React metagame wheel visualization."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT d1.colors AS c1, d2.colors AS c2,
+                   COUNT(*) AS games,
+                   SUM(CASE WHEN m.winner_id = d1.id THEN 1 ELSE 0 END) AS c1_wins,
+                   SUM(CASE WHEN m.winner_id = d2.id THEN 1 ELSE 0 END) AS c2_wins
+            FROM matches m
+            JOIN decks d1 ON m.deck1_id = d1.id
+            JOIN decks d2 ON m.deck2_id = d2.id
+            WHERE d1.colors != '' AND d2.colors != ''
+            GROUP BY d1.colors, d2.colors
+            HAVING COUNT(*) >= 5
+            ORDER BY COUNT(*) DESC
+        ''')
+        rows = [dict(r) for r in cursor.fetchall()]
+
+    color_games = {}
+    for r in rows:
+        color_games[r['c1']] = color_games.get(r['c1'], 0) + r['games']
+        color_games[r['c2']] = color_games.get(r['c2'], 0) + r['games']
+    top_colors = sorted(color_games.keys(), key=lambda c: color_games[c], reverse=True)[:15]
+
+    matchups = []
+    for r in rows:
+        if r['c1'] in top_colors and r['c2'] in top_colors and r['c1'] != r['c2']:
+            wr = r['c1_wins'] / r['games'] * 100 if r['games'] > 0 else 50
+            matchups.append({
+                "attacker": r['c1'],
+                "defender": r['c2'],
+                "win_rate": round(wr, 1),
+                "games": r['games'],
+            })
+
+    return {
+        "colors": top_colors,
+        "matchups": matchups,
+        "total_matchups": len(matchups)
+    }
+
+
 # ─── Deck Export: Arena/MTGO format ─────────────────────────────────────
 
 @app.get("/api/export/{deck_id}")
 async def export_deck(deck_id: int, format: str = "arena"):
-    """Export a deck in Arena or MTGO format."""
+    """Export a deck in Arena or MTGO format, including sideboard."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT name, card_list FROM decks WHERE id = ?', (deck_id,))
+        cursor.execute('SELECT name, card_list FROM decks WHERE id = %s', (deck_id,))
         row = cursor.fetchone()
         if not row:
             return JSONResponse({"error": "Deck not found"}, status_code=404)
+        
+        # Fetch sideboard history (most common in/out cards vs all matchups)
+        cursor.execute('''
+            SELECT card_in, SUM(count) as total
+            FROM sideboard_plans
+            WHERE deck_id = %s
+            GROUP BY card_in
+            ORDER BY total DESC
+            LIMIT 15
+        ''', (deck_id,))
+        sb_rows = cursor.fetchall()
     
     deck = dict(row)
     cards = json.loads(deck['card_list'])
@@ -878,22 +1255,108 @@ async def export_deck(deck_id: int, format: str = "arena"):
         for n in cards: c[n] = c.get(n, 0) + 1
         cards = c
     
+    sideboard_cards = {r['card_in']: 1 for r in sb_rows} if sb_rows else {}
+    
     if format == "arena":
-        # MTG Arena format: "4 Lightning Bolt"
         lines = [f"// {deck['name']}"]
         lines.append("// Exported from MTG Genetic League")
         lines.append("")
         for name, count in sorted(cards.items()):
             lines.append(f"{count} {name}")
+        if sideboard_cards:
+            lines.append("")
+            lines.append("Sideboard")
+            for name in sorted(sideboard_cards.keys()):
+                lines.append(f"1 {name}")
         text = "\n".join(lines)
     else:
-        # MTGO format: similar but with set codes if available
         lines = [f"// {deck['name']}"]
         for name, count in sorted(cards.items()):
             lines.append(f"{count} {name}")
+        if sideboard_cards:
+            lines.append("")
+            lines.append("Sideboard")
+            for name in sorted(sideboard_cards.keys()):
+                lines.append(f"1 {name}")
         text = "\n".join(lines)
     
-    return JSONResponse({"deck_name": deck['name'], "format": format, "decklist": text})
+    return JSONResponse({"deck_name": deck['name'], "format": format, "decklist": text,
+                         "sideboard_size": len(sideboard_cards)})
+
+from pydantic import BaseModel
+from typing import List
+
+class MulliganRequest(BaseModel):
+    deck_id: int
+    hand: List[str]
+    mulligan_count: int = 0
+    meta_archetype: str = "Midrange"
+
+@app.post("/api/mulligan-eval")
+async def evaluate_mulligan(req: MulliganRequest):
+    """Evaluate an opening hand using the Mulligan AI."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM decks WHERE id = %s", (req.deck_id,))
+        row = cursor.fetchone()
+        
+    if not row:
+        return JSONResponse({"error": "Deck not found"}, status_code=404)
+        
+    from engine.deck import Deck
+    from engine.card_builder import dict_to_card
+    
+    deck = Deck()
+    cache = _get_card_search_cache()
+    pool = {c['name']: c for c in cache}
+    
+    decklist = json.loads(row['card_list'])
+    if isinstance(decklist, list):
+        counts = {}
+        for n in decklist: counts[n] = counts.get(n, 0) + 1
+        decklist = counts
+        
+    for name, count in decklist.items():
+        if name in pool:
+            deck.add_card(dict_to_card(pool[name]), count)
+            
+    deck.db_id = row['id']
+    deck.elo = row['elo']
+    
+    hand_cards = []
+    
+    if not req.hand:
+        # Draw a random 7-card hand
+        import random
+        deck_list = deck.get_game_deck()
+        random.shuffle(deck_list)
+        hand_cards = deck_list[:7]
+    else:
+        for name in req.hand:
+            if name in pool:
+                hand_cards.append(dict_to_card(pool[name]))
+            
+    import os
+    model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'mulligan_model.npz')
+    if not os.path.exists(model_path):
+        model_path = None
+        
+    from agents.mulligan_ai import MulliganAI
+    ai = MulliganAI(model_path=model_path)
+    
+    expected_turn = ai.evaluate_hand(hand_cards, deck)
+    heuristic_turn = ai.heuristic_goldfish_turn(hand_cards)
+    
+    should_mull, explanation = ai.should_mulligan(hand_cards, deck, req.mulligan_count, req.meta_archetype)
+    recommendation = "Mulligan" if should_mull else "Keep"
+    
+    return {
+        "expected_win_turn": round(float(expected_turn), 2),
+        "heuristic_win_turn": round(float(heuristic_turn), 2),
+        "recommendation": recommendation,
+        "explanation": explanation,
+        "hand": [c.name for c in hand_cards]
+    }
 
 
 
@@ -911,7 +1374,7 @@ async def browse_decks(request: Request, page: int = 1, active: int = None, boss
         params = []
         
         if active is not None:
-            query += " AND active = ?"
+            query += " AND active = %s"
             params.append(active)
         
         if boss is not None:
@@ -921,11 +1384,11 @@ async def browse_decks(request: Request, page: int = 1, active: int = None, boss
                 query += " AND name NOT LIKE 'BOSS:%'"
         
         if colors:
-            query += " AND colors = ?"
+            query += " AND colors = %s"
             params.append(colors)
         
         if division:
-            query += " AND division = ?"
+            query += " AND division = %s"
             params.append(division)
             
         # Count total for pagination
@@ -934,7 +1397,7 @@ async def browse_decks(request: Request, page: int = 1, active: int = None, boss
         total_count = cursor.fetchone()['c']
         
         # Fetch page
-        query += " ORDER BY elo DESC LIMIT ? OFFSET ?"
+        query += " ORDER BY elo DESC LIMIT %s OFFSET %s"
         params.extend([page_size, offset])
         cursor.execute(query, params)
         decks = [dict(r) for r in cursor.fetchall()]
@@ -955,7 +1418,7 @@ async def view_season(request: Request, season_id: int):
         cursor = conn.cursor()
         
         # Season Stats
-        cursor.execute('SELECT COUNT(*) as c FROM matches WHERE season_id = ?', (season_id,))
+        cursor.execute('SELECT COUNT(*) as c FROM matches WHERE season_id = %s', (season_id,))
         match_count = cursor.fetchone()['c']
         
         if match_count == 0:
@@ -969,7 +1432,7 @@ async def view_season(request: Request, season_id: int):
                    SUM(CASE WHEN m.winner_id = d.id THEN 1 ELSE 0 END) as season_wins
             FROM decks d
             JOIN matches m ON (m.deck1_id = d.id OR m.deck2_id = d.id)
-            WHERE m.season_id = ?
+            WHERE m.season_id = %s
             GROUP BY d.id
             ORDER BY season_wins DESC
             LIMIT 1
@@ -998,7 +1461,7 @@ async def view_lineage(request: Request, deck_id: int):
         cursor = conn.cursor()
         
         # 1. Fetch current deck
-        cursor.execute('SELECT * FROM decks WHERE id = ?', (deck_id,))
+        cursor.execute('SELECT * FROM decks WHERE id = %s', (deck_id,))
         row = cursor.fetchone()
         if not row:
             return HTMLResponse("Deck not found", status_code=404)
@@ -1010,7 +1473,7 @@ async def view_lineage(request: Request, deck_id: int):
         
         # Helper to fetch deck info
         def get_deck_info(d_id):
-            cursor.execute('SELECT id, name, elo, generation, parent_ids FROM decks WHERE id = ?', (d_id,))
+            cursor.execute('SELECT id, name, elo, generation, parent_ids FROM decks WHERE id = %s', (d_id,))
             return cursor.fetchone()
 
         # Add current node
@@ -1060,7 +1523,7 @@ async def view_lineage(request: Request, deck_id: int):
         # Converting deck_id to string for LIKE query is tricky due to JSON format "[1, 2]"
         # But commonly parent_ids is roughly "[ID]" or "[ID, ID]"
         # Safe wildcard: %deck_id% covers it (e.g. [123] or [123, 456])
-        cursor.execute("SELECT id, name, elo, generation FROM decks WHERE parent_ids LIKE ?", (f'%{deck_id}%',))
+        cursor.execute("SELECT id, name, elo, generation FROM decks WHERE parent_ids LIKE %s", (f'%{deck_id}%',))
         children = cursor.fetchall()
         
         for child in children:
@@ -1108,8 +1571,136 @@ async def view_lineage(request: Request, deck_id: int):
     })
 
 
+@app.get("/api/deck/{deck_id}/sideboard-guide")
+async def get_sideboard_guide(deck_id: int):
+    """Retrieve the aggregated sideboarding heuristics for a specific deck."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT opp_archetype, card_in, card_out, SUM(count) as total
+            FROM sideboard_plans
+            WHERE deck_id = %s
+            GROUP BY opp_archetype, card_in, card_out
+            ORDER BY opp_archetype, total DESC
+        ''', (deck_id,))
+        rows = cursor.fetchall()
+
+    guide = {}
+    for r in rows:
+        opp = r['opp_archetype'].title() if r['opp_archetype'] else 'Unknown'
+        if opp not in guide:
+            guide[opp] = []
+            
+        guide[opp].append({
+            'card_in': r['card_in'],
+            'card_out': r['card_out'],
+            'count': r['total']
+        })
+        
+    # Simplify guide to discrete ins/outs
+    summary = {}
+    
+    # Calculate total swaps per opponent to find the most common matchups
+    opp_totals = {}
+    for opp, swaps in guide.items():
+        opp_totals[opp] = sum(s['count'] for s in swaps)
+        
+    # Get top 6 opponents by sideboarding frequency
+    top_opponents = sorted(opp_totals.keys(), key=lambda o: opp_totals[o], reverse=True)[:6]
+
+    for opp in top_opponents:
+        swaps = guide[opp]
+        cards_in = {}
+        cards_out = {}
+        for s in swaps:
+            cards_in[s['card_in']] = cards_in.get(s['card_in'], 0) + s['count']
+            cards_out[s['card_out']] = cards_out.get(s['card_out'], 0) + s['count']
+            
+        # Top 5 ins and outs
+        top_in = sorted(cards_in.items(), key=lambda x: x[1], reverse=True)[:7]
+        top_out = sorted(cards_out.items(), key=lambda x: x[1], reverse=True)[:7]
+        
+        summary[opp] = {
+            "in": [{"name": k} for k, v in top_in],
+            "out": [{"name": k} for k, v in top_out]
+        }
+        
+    return JSONResponse({"deck_id": deck_id, "guide": summary})
+
+
+@app.get("/api/meta-trends", response_class=JSONResponse)
+async def api_meta_trends():
+    """Retrieve historical archetype popularity AND win rates aggregated by season."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Popularity: count unique decks per archetype per season
+        cursor.execute('''
+            SELECT m.season_id, d.archetype, COUNT(DISTINCT d.id) as deck_count
+            FROM matches m
+            JOIN decks d ON (m.deck1_id = d.id OR m.deck2_id = d.id)
+            WHERE m.season_id IS NOT NULL AND d.archetype != 'Unknown'
+            GROUP BY m.season_id, d.archetype
+            ORDER BY m.season_id ASC
+        ''')
+        pop_rows = cursor.fetchall()
+        
+        # Win rates: average win rate per archetype per season
+        cursor.execute('''
+            SELECT m.season_id, d.archetype,
+                   COUNT(*) as total_games,
+                   SUM(CASE WHEN m.winner_id = d.id THEN 1 ELSE 0 END) as wins
+            FROM matches m
+            JOIN decks d ON (m.deck1_id = d.id OR m.deck2_id = d.id)
+            WHERE m.season_id IS NOT NULL AND d.archetype != 'Unknown'
+            GROUP BY m.season_id, d.archetype
+            ORDER BY m.season_id ASC
+        ''')
+        wr_rows = cursor.fetchall()
+    
+    seasons = sorted(list(set(r['season_id'] for r in pop_rows))) if pop_rows else []
+    
+    # Popularity series
+    archetypes = {}
+    for r in pop_rows:
+        arch = r['archetype']
+        if arch not in archetypes:
+            archetypes[arch] = {s: 0 for s in seasons}
+        archetypes[arch][r['season_id']] = r['deck_count']
+        
+    series = []
+    for arch, counts_by_season in archetypes.items():
+        data = [counts_by_season[s] for s in seasons]
+        series.append({"name": arch, "data": data})
+    
+    # Win rate series
+    wr_archetypes = {}
+    for r in wr_rows:
+        arch = r['archetype']
+        if arch not in wr_archetypes:
+            wr_archetypes[arch] = {s: {'wins': 0, 'total': 0} for s in seasons}
+        wr_archetypes[arch][r['season_id']]['wins'] += r['wins']
+        wr_archetypes[arch][r['season_id']]['total'] += r['total_games']
+    
+    win_rate_series = []
+    for arch, data_by_season in wr_archetypes.items():
+        wr_data = []
+        for s in seasons:
+            total = data_by_season[s]['total']
+            wr = round(data_by_season[s]['wins'] / total * 100, 1) if total > 0 else 0
+            wr_data.append(wr)
+        win_rate_series.append({"name": arch, "data": wr_data})
+        
+    return JSONResponse({
+        "categories": [f"S{s}" for s in seasons],
+        "series": series,
+        "win_rate_series": win_rate_series
+    })
+
+
 @app.get("/matches", response_class=HTMLResponse)
 async def view_matches(request: Request):
+    """Render the dedicated Match History page for the League."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         # Fetch detailed match info including deck names and ELO
@@ -1134,9 +1725,17 @@ async def view_matches(request: Request):
 
 @app.get("/match/{match_id}/replay", response_class=HTMLResponse)
 async def view_replay(request: Request, match_id: int):
+    """Render the visual 2D interactive replay for a specific match using parsed event logs."""
+    from web.match_parser import parse_match_log
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT log_path FROM matches WHERE id = ?', (match_id,))
+        cursor.execute('''
+            SELECT m.log_path, d1.card_list as d1_cards, d2.card_list as d2_cards
+            FROM matches m
+            LEFT JOIN decks d1 ON m.deck1_id = d1.id
+            LEFT JOIN decks d2 ON m.deck2_id = d2.id
+            WHERE m.id = %s
+        ''', (match_id,))
         row = cursor.fetchone()
         
         if not row or not row['log_path']:
@@ -1144,20 +1743,339 @@ async def view_replay(request: Request, match_id: int):
             
         log_path = row['log_path']
         
+        if log_path:
+            allowed_logs_dir = os.path.abspath(os.path.join(os.path.dirname(BASE_DIR), 'logs'))
+            abs_log_path = os.path.abspath(log_path)
+            if not abs_log_path.startswith(allowed_logs_dir):
+                return HTMLResponse("Invalid log path", status_code=403)
+        
         if not os.path.exists(log_path):
             return HTMLResponse(f"Log file missing: {log_path}", status_code=404)
             
         with open(log_path, 'r') as f:
             content = f.read()
             
-        from .match_parser import parse_match_log
+        import sys
+        if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from match_parser import parse_match_log
         data = parse_match_log(content)
         
+        from engine.salt_score import calculate_salt_score
+        import json
+        
+        d1_bracket = 1
+        d2_bracket = 1
+        try:
+            d1_bracket = calculate_salt_score(json.loads(row['d1_cards'] or '{}')).get('bracket', 1)
+            d2_bracket = calculate_salt_score(json.loads(row['d2_cards'] or '{}')).get('bracket', 1)
+        except Exception as e:
+            pass
+
     return templates.TemplateResponse("replay.html", {
         "request": request,
-        "match_data": data
+        "match_data": data,
+        "d1_bracket": d1_bracket,
+        "d2_bracket": d2_bracket
     })
+
+
+# ─── Feature: Engine Room (Resource Controls) ────────────────────────────────
+
+from engine.engine_config import config as engine_config
+
+@app.get("/api/engine/config")
+async def get_engine_config():
+    """Return current engine configuration."""
+    return engine_config.to_dict()
+
+@app.post("/api/engine/config")
+async def update_engine_config(request: Request):
+    """Update engine configuration (threading, memory, headless mode)."""
+    data = await request.json()
+    engine_config.update_from_dict(data)
+    return {"status": "ok", "config": engine_config.to_dict()}
+
+
+# ─── Feature: Historical Gauntlet ("Time Machine") ───────────────────────────
+
+from league.historical_gauntlet import get_era_list, run_gauntlet
+
+@app.get("/api/gauntlet/eras")
+async def get_gauntlet_eras():
+    """List available historical eras for the Time Machine."""
+    return {"eras": get_era_list()}
+
+@app.post("/api/gauntlet/run")
+async def run_gauntlet_endpoint(request: Request):
+    """Run a user deck against a historical era's Top 8."""
+    data = await request.json()
+    decklist_raw = data.get("decklist", "")
+    era_id = data.get("era", "")
+
+    if not decklist_raw or not era_id:
+        return JSONResponse({"error": "Both 'decklist' and 'era' required"},
+                            status_code=400)
+
+    # Parse decklist from text format
+    if isinstance(decklist_raw, str):
+        parsed = _parse_decklist(decklist_raw)
+    else:
+        parsed = decklist_raw  # Already a dict
+
+    if not parsed:
+        return JSONResponse({"error": "Could not parse decklist"}, status_code=400)
+
+    result = run_gauntlet(parsed, era_id)
+    return result
+
+
+# ─── Feature: Mutation Heatmaps ──────────────────────────────────────────────
+
+from data.db import get_mutation_heatmap
+
+@app.get("/api/mutations/heatmap")
+async def get_heatmap(limit: int = 50):
+    """Get top card swaps ranked by average ELO delta."""
+    data = get_mutation_heatmap(limit)
+    return {"mutations": data, "total": len(data)}
+
+
+# ─── Feature: Salt Score (Commander Brackets) ────────────────────────────────
+
+from engine.salt_score import calculate_salt_score
+
+@app.post("/api/salt-score")
+async def get_salt_score(request: Request):
+    """Calculate Commander salt score and bracket for a decklist."""
+    data = await request.json()
+    decklist_raw = data.get("decklist", "")
+
+    if isinstance(decklist_raw, str):
+        parsed = _parse_decklist(decklist_raw)
+    else:
+        parsed = decklist_raw
+
+    if not parsed:
+        return JSONResponse({"error": "Could not parse decklist"}, status_code=400)
+
+    result = calculate_salt_score(parsed)
+    return result
+
+
+# ─── Feature: Hall of Fame ───────────────────────────────────────────────────
+
+from data.db import get_hall_of_fame
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_portal(request: Request):
+    """Main Admin Portal UI."""
+    return templates.TemplateResponse("admin.html", {"request": request})
+
+@app.get("/api/admin/health")
+async def get_admin_health():
+    """Live Health Check - Rules Coverage %."""
+    from engine.rules_sandbox import SCENARIO_REGISTRY
+    tested = len(SCENARIO_REGISTRY)
+    total = max(tested, 1)  # Use actual registry size as denominator
+    coverage = min((tested / total) * 100, 100.0)  # Cap at 100%
+    return {
+        "coverage_percent": round(coverage, 1),
+        "tested_interactions": tested,
+        "total_scenarios": total
+    }
+
+@app.post("/api/admin/restart")
+async def admin_restart():
+    """Restart the Sovereign simulation as a background process."""
+    import subprocess
+    import sys
+    
+    project_root = os.path.dirname(BASE_DIR)
+    venv_python = os.path.join(project_root, '.venv', 'bin', 'python')
+    sovereign_script = os.path.join(project_root, 'sovereign.py')
+    
+    try:
+        subprocess.Popen(
+            [venv_python, sovereign_script],
+            cwd=project_root,
+            stdout=open(os.path.join(project_root, 'data', 'sovereign_stdout.log'), 'w'),
+            stderr=subprocess.STDOUT,
+        )
+        return {"status": "ok", "message": "Sovereign simulation restarted in background."}
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+@app.post("/api/admin/reset-elo")
+async def admin_reset_elo():
+    """Reset all deck ELO ratings to 1200."""
+    try:
+        from data.db import get_db_connection
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE decks SET elo = 1200")
+        conn.commit()
+        affected = cursor.rowcount
+        conn.close()
+        return {"status": "ok", "message": f"Reset {affected} decks to ELO 1200."}
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+@app.get("/admin/butterfly", response_class=HTMLResponse)
+async def butterfly_dashboard(request: Request):
+    """Admin UI for viewing Misplay Hunter butterfly maps."""
+    return templates.TemplateResponse("butterfly.html", {"request": request})
+
+@app.get("/api/butterfly-reports")
+async def get_butterfly_reports():
+    """Retrieve all Misplay Hunter reports."""
+    from engine.misplay_hunter import BUTTERFLY_REPORTS_FILE
+    
+    if not os.path.exists(BUTTERFLY_REPORTS_FILE):
+        return []
+        
+    with open(BUTTERFLY_REPORTS_FILE, "r") as f:
+        data = json.load(f)
+        
+    # Enrich with deck names
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        for report in data:
+            cursor.execute('SELECT name FROM decks WHERE id = %s', (report['deck1_id'],))
+            d1 = cursor.fetchone()
+            report['deck1_name'] = d1['name'] if d1 else f"Deck {report['deck1_id']}"
+            
+            cursor.execute('SELECT name FROM decks WHERE id = %s', (report['deck2_id'],))
+            d2 = cursor.fetchone()
+            report['deck2_name'] = d2['name'] if d2 else f"Deck {report['deck2_id']}"
+            
+    # Sort newest first
+    data.sort(key=lambda x: x['timestamp'], reverse=True)
+    return data
+
+@app.get("/api/hall-of-fame")
+async def get_hall_of_fame_api(limit: int = 50):
+    """Get the all-time greatest evolved decks."""
+    inductees = get_hall_of_fame(limit)
+    return {"inductees": inductees, "total": len(inductees)}
+
+@app.get("/api/match/{match_id}")
+async def get_match_api(match_id: int):
+    """JSON API for match replay viewer — returns structured game log data."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT m.*, 
+                   d1.name AS deck1_name, d1.id AS d1_id,
+                   d2.name AS deck2_name, d2.id AS d2_id,
+                   w.name AS winner_name
+            FROM matches m
+            JOIN decks d1 ON m.deck1_id = d1.id
+            JOIN decks d2 ON m.deck2_id = d2.id
+            LEFT JOIN decks w ON m.winner_id = w.id
+            WHERE m.id = %s
+        ''', (match_id,))
+        row = cursor.fetchone()
+        if not row:
+            return JSONResponse({"error": "Match not found"}, status_code=404)
+        match = dict(row)
+    
+    # Parse game log
+    game_log = []
+    log_path = match.get('log_path', '')
+    allowed_logs_dir = os.path.abspath(os.path.join(os.path.dirname(BASE_DIR), 'logs'))
+    if log_path:
+        abs_log_path = os.path.abspath(log_path)
+        if abs_log_path.startswith(allowed_logs_dir) and os.path.exists(abs_log_path):
+            with open(abs_log_path, 'r') as f:
+                game_log = f.read().splitlines()
+    
+    if not game_log:
+        game_log = json.loads(match.get('game_log', '[]') or '[]')
+    
+    # Structure log into turns for the replay viewer
+    turns = []
+    current_turn = {"turn": 0, "events": []}
+    for line in game_log:
+        if line.startswith("T") and ":" in line[:5]:
+            # Extract turn number
+            try:
+                turn_num = int(line.split(":")[0].replace("T", ""))
+                if turn_num != current_turn["turn"]:
+                    if current_turn["events"]:
+                        turns.append(current_turn)
+                    current_turn = {"turn": turn_num, "events": []}
+            except ValueError:
+                pass
+        current_turn["events"].append(line)
+    if current_turn["events"]:
+        turns.append(current_turn)
+    
+    return {
+        "match_id": match_id,
+        "deck1": {"id": match.get("d1_id"), "name": match.get("deck1_name")},
+        "deck2": {"id": match.get("d2_id"), "name": match.get("deck2_name")},
+        "winner": match.get("winner_name"),
+        "total_turns": len(turns),
+        "turns": turns,
+        "raw_log": game_log
+    }
+
+
+# ─── Feature: Card Pool Coverage Report ─────────────────────────────────
+
+@app.get("/api/card-coverage")
+async def get_card_coverage(limit: int = 100):
+    """Report showing which cards from the pool are actually played in active decks.
+    Returns play rates for each card (percent of active decks using it)."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Count active decks
+        cursor.execute("SELECT COUNT(*) as c FROM decks WHERE active = TRUE")
+        total_decks = cursor.fetchone()['c']
+        
+        if total_decks == 0:
+            return {"total_pool": 0, "total_played": 0, "coverage_percent": 0, "cards": []}
+        
+        # Get all card lists from active decks
+        cursor.execute("SELECT card_list FROM decks WHERE active = TRUE")
+        rows = cursor.fetchall()
+    
+    card_deck_count = {}  # card_name -> number of decks using it
+    for row in rows:
+        card_list = json.loads(row['card_list'])
+        if isinstance(card_list, list):
+            unique_cards = set(card_list)
+        else:
+            unique_cards = set(card_list.keys())
+        for name in unique_cards:
+            card_deck_count[name] = card_deck_count.get(name, 0) + 1
+    
+    # Get total card pool size
+    try:
+        cache = _get_card_search_cache()
+        total_pool = len(cache)
+    except Exception:
+        total_pool = len(card_deck_count)
+    
+    total_played = len(card_deck_count)
+    coverage_pct = round(total_played / max(1, total_pool) * 100, 1)
+    
+    # Sort by play rate descending
+    sorted_cards = sorted(card_deck_count.items(), key=lambda x: x[1], reverse=True)[:limit]
+    cards = [{"name": name, "decks_using": count, 
+              "play_rate": round(count / total_decks * 100, 1)}
+             for name, count in sorted_cards]
+    
+    return {
+        "total_pool": total_pool,
+        "total_played": total_played,
+        "coverage_percent": coverage_pct,
+        "total_active_decks": total_decks,
+        "cards": cards
+    }
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
-

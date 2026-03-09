@@ -21,7 +21,7 @@ import re
 # Basic land type → mana color mapping (Rule 305.6)
 BASIC_LAND_MANA = {
     'Plains': 'W', 'Island': 'U', 'Swamp': 'B',
-    'Mountain': 'R', 'Forest': 'G',
+    'Mountain': 'R', 'Forest': 'G', 'Wastes': 'C',
 }
 
 MANA_COLORS = {'W', 'U', 'B', 'R', 'G', 'C'}
@@ -51,27 +51,61 @@ class Player:
         self.hand = Zone("Hand")
         self.graveyard = Zone("Graveyard")
         self.exile = Zone("Exile")
+        self.sideboard = Zone("Sideboard")  # Bo3: up to 15 cards
         self.lands_played_this_turn = 0
         self.max_lands_per_turn = 1
         # Colored mana pool (Rule 106.1)
         self.mana_pool: Dict[str, int] = {c: 0 for c in MANA_COLORS}
+        # Commander tracking (EDH)
+        self.commander = None
+        self.commander_tax = 0  # Increases by 2 each cast
+        self.commander_damage_taken: Dict[str, int] = {}  # opponent_name → damage
+        self.poison_counters: int = 0  # Infect/Toxic — 10 = loss (Rule 704.5c)
+        self.fatal_blow_reason: Optional[str] = None  # Tracks the exact reason a player lost
+        
         
         # Initialize library from deck
         for card in deck.get_game_deck():
             card.controller = self
             self.library.add(card)
             
+        self.library_empty_draw = False  # Track empty library draw for SBA loss
+    
+    def reset_for_new_game(self, game=None):
+        """Reset player state for a new game in a Bo3 match."""
+        self.life = 20
+        self.hand = Zone("Hand")
+        self.graveyard = Zone("Graveyard")
+        self.exile = Zone("Exile")
+        self.lands_played_this_turn = 0
+        self.mana_pool = {c: 0 for c in MANA_COLORS}
+        self.poison_counters = 0
+        self.fatal_blow_reason = None
+        self.library = Zone("Library")
+        for card in self.original_deck.get_game_deck():
+            card.controller = self
+            self.library.add(card)
+            
+        self.library_empty_draw = False
+            
     def shuffle_library(self):
+        """Randomize the order of the remaining cards in the library."""
         self.library.shuffle()
         
-    def draw_card(self, amount: int = 1):
+    def draw_card(self, amount: int = 1, game=None):
+        """Draw cards. If game is provided, triggers CR 614 replacement events."""
         for _ in range(amount):
+            if game and game.apply_replacement('draw', player=self):
+                continue  # Draw was replaced (e.g., Dredge)
+                
             card = self.library.draw()
             if card:
                 self.hand.add(card)
-            # Empty library = eventual loss (milling)
+            else:
+                self.library_empty_draw = True  # Caught by SBAs (Rule 704.5b)
 
     def play_land(self, card: Card, game):
+        """Move a land card from hand to the battlefield and decrement available land plays."""
         if not card.is_land:
             return False
         if self.lands_played_this_turn >= self.max_lands_per_turn:
@@ -84,7 +118,86 @@ class Player:
         
         # Enters-tapped lands (Rule 305.7)
         if hasattr(card, 'enters_tapped') and card.enters_tapped:
-            card.tapped = True
+            # Check if it's a shockland
+            if getattr(card, 'is_shock_land', False):
+                if self.life > 5:
+                    self.life -= 2
+                    card.tapped = False
+                    game.log_event(f"T{game.turn_count}: {self.name} pays 2 life for {card.name} to enter untapped")
+                else:
+                    card.tapped = True
+            else:
+                card.tapped = True
+        
+        # Fetchland activation: auto-sacrifice to search for a basic land
+        # Fetches sacrifice + pay 1 life → search library for matching land type
+        if getattr(card, 'is_fetchland', False) and getattr(card, 'fetch_targets', None):
+            self.life -= 1
+            game.battlefield.remove(card)
+            self.graveyard.add(card)
+            
+            # Find the best matching basic land in library
+            # Prioritize colors the deck needs most (based on hand)
+            fetch_targets = card.fetch_targets  # e.g. ['Forest', 'Island']
+            
+            # Map land types to mana colors they produce
+            land_type_colors = {
+                'Plains': 'W', 'Island': 'U', 'Swamp': 'B',
+                'Mountain': 'R', 'Forest': 'G'
+            }
+            
+            # Score each fetchable color by how many cards in hand need it
+            color_needs = {}
+            for hand_card in self.hand.cards:
+                if hand_card.cost:
+                    for c in re.findall(r'\{([WUBRG])\}', hand_card.cost):
+                        color_needs[c] = color_needs.get(c, 0) + 1
+            
+            best_land = None
+            best_score = -1
+            
+            for lib_card in self.library.cards:
+                if not lib_card.is_land:
+                    continue
+                # Check if this land matches any of the fetch targets
+                for target_type in fetch_targets:
+                    if target_type in lib_card.type_line or lib_card.name == target_type:
+                        # Score by how much we need this color
+                        target_color = land_type_colors.get(target_type, '')
+                        score = color_needs.get(target_color, 0)
+                        # Prefer dual/shock lands over basics (they produce 2 colors)
+                        produced = getattr(lib_card, 'produced_mana', [])
+                        if len(produced) > 1:
+                            score += 2
+                        if score > best_score:
+                            best_score = score
+                            best_land = lib_card
+                        break
+            
+            if best_land:
+                self.library.remove(best_land)
+                best_land.controller = self
+                game.battlefield.add(best_land)
+                # Fetched lands enter untapped (unless they have enters_tapped and we don't pay life)
+                if getattr(best_land, 'is_shock_land', False):
+                    if self.life > 5:
+                        self.life -= 2
+                        best_land.tapped = False
+                        best_land.enters_tapped = False
+                        game.log_event(f"T{game.turn_count}: {self.name} fetches {best_land.name} (shock, paid 2 life, total life={self.life})")
+                    else:
+                        best_land.tapped = True
+                        game.log_event(f"T{game.turn_count}: {self.name} fetches {best_land.name} (enters tapped, declined shock)")
+                elif getattr(best_land, 'enters_tapped', False):
+                    best_land.tapped = True
+                    game.log_event(f"T{game.turn_count}: {self.name} fetches {best_land.name} (enters tapped)")
+                else:
+                    best_land.tapped = False
+                    game.log_event(f"T{game.turn_count}: {self.name} fetches {best_land.name}")
+            else:
+                game.log_event(f"T{game.turn_count}: {self.name} fetches with {card.name} but found no matching land")
+            
+            return True
         
         return True
 
@@ -130,6 +243,11 @@ class Player:
                 for color in options:
                     available[color] += 1
         return available
+    
+    def available_mana(self, game) -> int:
+        """Total untapped lands (for curve efficiency calculations)."""
+        return sum(1 for c in game.battlefield.cards
+                   if c.controller == self and c.is_land and not c.tapped)
     
     def can_pay_cost(self, cost: str, game=None) -> bool:
         """Check if player can pay the mana cost with available lands + mana pool."""
@@ -200,22 +318,26 @@ class Player:
         
         return remaining
 
-    def pay_cost(self, cost: str, game):
-        """Pay cost by draining mana pool first, then tapping lands for remainder."""
+    def drain_pool_for_cost(self, cost: str) -> bool:
+        """Pay cost strictly from the floating mana pool (CR 605).
+        Returns True if successful, False if the pool is insufficient.
+        """
         req = self._parse_mana_requirements(cost)
-        if not req: return
+        if not req: 
+            return True
+            
+        if not self._check_requirements(req, self.mana_pool):
+            return False
 
         # Drain floating mana pool for colored requirements
         for color in list(req.keys()):
             if color in ('generic', '_hybrid'):
                 continue
-            available = self.mana_pool.get(color, 0)
-            if available > 0:
-                used = min(available, req[color])
-                req[color] -= used
-                self.mana_pool[color] -= used
-                if req[color] <= 0:
-                    del req[color]
+            used = min(self.mana_pool.get(color, 0), req[color])
+            req[color] -= used
+            self.mana_pool[color] -= used
+            if req[color] <= 0:
+                del req[color]
         
         # Drain pool for hybrid requirements
         if '_hybrid' in req:
@@ -244,11 +366,25 @@ class Player:
                     self.mana_pool[color] -= used
             if req.get('generic', 0) <= 0:
                 req.pop('generic', None)
-        
-        # If pool covered everything, done
+                
+        return len(req) == 0
+
+    def pay_cost(self, cost: str, game):
+        """Legacy auto-tap cost payment (to be deprecated by CR 601.2 sequence).
+        Pays cost by draining mana pool first, then tapping lands for remainder.
+        """
+        # First try strict drain
+        if self.drain_pool_for_cost(cost):
+            return
+            
+        req = self._parse_mana_requirements(cost)
+        if not req: return
+
+        # Reduce requirements by what pool CAN cover
+        req = self._reduce_req_by_pool(req)
         if not req:
             return
-        
+
         # Tap lands for the remainder
         target_lands = [c for c in game.battlefield.cards 
                         if c.controller == self and c.is_land and not c.tapped]
@@ -361,22 +497,62 @@ class Player:
 
     @staticmethod
     def _check_requirements(req: Dict[str, int], available: Dict[str, int]) -> bool:
-        """Check if available mana can satisfy requirements."""
+        """Check if available mana can satisfy requirements.
+        
+        Handles: colored pips, generic, and hybrid {R/W} pips.
+        """
         remaining_pool = dict(available)
+        
+        # 1. Colored pips first
         for color, count in req.items():
-            if color == 'generic':
+            if color == 'generic' or color.startswith('_'):
+                continue
+            if not isinstance(count, int):
                 continue
             if remaining_pool.get(color, 0) < count:
                 return False
-            remaining_pool[color] -= count
+            remaining_pool[color] = remaining_pool.get(color, 0) - count
         
+        # 2. Hybrid pips — each needs 1 mana from either color
+        hybrid_pairs = req.get('_hybrid', [])
+        for c1, c2 in hybrid_pairs:
+            if remaining_pool.get(c1, 0) >= remaining_pool.get(c2, 0):
+                if remaining_pool.get(c1, 0) > 0:
+                    remaining_pool[c1] -= 1
+                elif remaining_pool.get(c2, 0) > 0:
+                    remaining_pool[c2] -= 1
+                else:
+                    # Check generic pool
+                    total = sum(v for v in remaining_pool.values() if isinstance(v, int))
+                    if total <= 0:
+                        return False
+                    # Use any available color
+                    for c in remaining_pool:
+                        if isinstance(remaining_pool[c], int) and remaining_pool[c] > 0:
+                            remaining_pool[c] -= 1
+                            break
+            else:
+                if remaining_pool.get(c2, 0) > 0:
+                    remaining_pool[c2] -= 1
+                elif remaining_pool.get(c1, 0) > 0:
+                    remaining_pool[c1] -= 1
+                else:
+                    total = sum(v for v in remaining_pool.values() if isinstance(v, int))
+                    if total <= 0:
+                        return False
+                    for c in remaining_pool:
+                        if isinstance(remaining_pool[c], int) and remaining_pool[c] > 0:
+                            remaining_pool[c] -= 1
+                            break
+        
+        # 3. Generic mana
         generic_needed = req.get('generic', 0)
-        total_remaining = sum(remaining_pool.values())
+        total_remaining = sum(v for v in remaining_pool.values() if isinstance(v, int))
         return total_remaining >= generic_needed
     
-    def scry(self, n: int):
+    def scry(self, n: int, role: str = 'midrange'):
         """Scry N: look at top N cards, keep good ones on top, bottom bad ones.
-        Heuristic: keep creatures/spells, bottom excess lands."""
+        Role-aware: aggro bottoms expensive cards, control keeps removal on top."""
         if n <= 0 or len(self.library) == 0:
             return
         
@@ -385,19 +561,41 @@ class Player:
             if self.library.cards:
                 top_cards.append(self.library.cards.pop(0))
         
-        # Separate into keep-on-top and bottom
+        # Separate into keep-on-top and bottom based on role
         keep = []
         bottom = []
         
         for c in top_cards:
-            if c.is_land:
-                # Bottom excess lands (keep 1 land on top if needed)
-                if not any(k.is_land for k in keep):
-                    keep.append(c)
+            if role == 'aggro':
+                # Aggro: bottom expensive cards and excess lands, keep cheap threats + burn
+                cmc = self._parse_cmc(c.cost) if c.cost else 0
+                if c.is_land and any(k.is_land for k in keep):
+                    bottom.append(c)  # Bottom excess lands
+                elif cmc >= 4 and not c.is_land:
+                    bottom.append(c)  # Bottom expensive spells
                 else:
-                    bottom.append(c)
+                    keep.append(c)
+            elif role == 'control':
+                # Control: keep removal/sweepers/card draw, bottom small creatures
+                is_useful = (c.is_removal or c.is_board_wipe or 
+                           getattr(c, 'is_counterspell', False) or
+                           getattr(c, 'draws_cards', False) or
+                           c.is_land)
+                if c.is_creature and (c.power or 0) <= 2 and not is_useful:
+                    bottom.append(c)  # Bottom small creatures
+                elif c.is_land and sum(1 for k in keep if k.is_land) >= 2:
+                    bottom.append(c)  # Bottom excess lands (control still needs some)
+                else:
+                    keep.append(c)
             else:
-                keep.append(c)
+                # Midrange (default): bottom excess lands, keep everything else
+                if c.is_land:
+                    if not any(k.is_land for k in keep):
+                        keep.append(c)
+                    else:
+                        bottom.append(c)
+                else:
+                    keep.append(c)
         
         # Put keeps back on top (non-lands first, then lands), bottoms at bottom
         keep.sort(key=lambda c: 1 if c.is_land else 0)

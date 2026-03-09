@@ -1,0 +1,13 @@
+[
+  {
+    "timestamp": "2026-03-08T19:13:48.298710",
+    "deck1_id": 1,
+    "deck2_id": 2,
+    "high_elo_index": 0,
+    "pivot_turn": 14,
+    "actual_action": "Play Swamp",
+    "golden_action": "Cast Damnation",
+    "winrate_difference": 0.35,
+    "vibe_score": 35.0
+  }
+]

@@ -12,6 +12,8 @@ class BaseAgent:
     Subclasses must implement `get_action()` to return a legal action dict.
     The `get_blockers()` method can be overridden for custom blocking logic.
     """
+    def __init__(self, name="Agent"):
+        self.name = name
 
     def get_action(self, game, player) -> dict:
         """Choose an action for the given player in the current game state.

@@ -98,48 +98,28 @@ def test_flying_block_restriction():
     add_battlefield(game, p1, [flyer])
     add_battlefield(game, p2, [ground, reacher])
     
-    # Test 1: Ground creature can NOT block flyer
-    # We test the validation logic directly by simulating declare_blockers
-    # and checking what gets validated
-    game.combat_attackers = [flyer]
-    game.current_phase = "Declare Blockers"
-    game.phase_index = game.phases.index("Declare Blockers")
+    # Verify keyword parsing
+    assert flyer.has_flying, "FAIL: Serra Angel should have flying"
+    assert flyer.has_vigilance, "FAIL: Serra Angel should have vigilance"
+    assert reacher.has_reach, "FAIL: Giant Spider should have reach"
+    assert not ground.has_flying, "FAIL: Bears should not have flying"
+    assert not ground.has_reach, "FAIL: Bears should not have reach"
     
-    # Capture validated blocks: declare_blockers validates then advances phase
-    # Save combat_blockers to check after
-    blocks = {flyer.id: [ground]}
-    game.apply_action({'type': 'declare_blockers', 'blocks': blocks})
+    # Verify can_block_flyer property
+    assert reacher.can_block_flyer, "FAIL: Reach creature should be able to block flyers"
+    assert not ground.can_block_flyer, "FAIL: Ground creature should NOT block flyers"
     
-    # After applying, check the validated blockers (combat_blockers will have been
-    # set then cleared by advance_phase → combat_damage, but we can check the log)
-    blocked_by_ground = any('Cannot block' in entry and 'Serra Angel' in entry and 'flying' in entry 
-                           for entry in game.log)
-    # The ground creature was filtered out, so the flyer hit the player
+    # Core rules test: ground can't block flyer, reach can
+    assert not game._can_block(flyer, ground), \
+        "FAIL: Ground creature (_can_block) should NOT block a flyer"
+    assert game._can_block(flyer, reacher), \
+        "FAIL: Reach creature (_can_block) should block a flyer"
     
-    # Test 2: Reach creature CAN block flyer
-    game2, p1b, p2b = setup_game()
-    flyer2 = Card(name="Serra Angel", cost="{3}{W}{W}", type_line="Creature — Angel",
-                 oracle_text="Flying, vigilance", base_power=4, base_toughness=4)
-    flyer2.id = 100
-    reacher2 = Card(name="Giant Spider", cost="{3}{G}", type_line="Creature — Spider",
-                   oracle_text="Reach", base_power=2, base_toughness=4)
-    reacher2.id = 300
-    add_battlefield(game2, p1b, [flyer2])
-    add_battlefield(game2, p2b, [reacher2])
-    
-    game2.combat_attackers = [flyer2]
-    game2.current_phase = "Declare Blockers"
-    game2.phase_index = game2.phases.index("Declare Blockers")
-    
-    blocks2 = {flyer2.id: [reacher2]}
-    game2.apply_action({'type': 'declare_blockers', 'blocks': blocks2})
-    
-    # The reacher should have been accepted — flyer should NOT have dealt 
-    # unblocked damage. Check that p2b didn't take 4 damage.
-    reach_blocked = p2b.life == 20  # If blocked, player takes no damage from flyer
-    
-    assert reach_blocked, \
-        f"FAIL: Reach creature should block flyer. P2 life={p2b.life} (expected 20)"
+    # Validate blocking group
+    assert not game._validate_blocking(flyer, [ground]), \
+        "FAIL: Ground-only block group should be invalid"
+    assert game._validate_blocking(flyer, [reacher]), \
+        "FAIL: Reach block group should be valid"
     
     print("✅ Test 1 PASSED: Flying/Reach enforcement")
 

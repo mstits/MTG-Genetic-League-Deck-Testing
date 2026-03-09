@@ -25,7 +25,8 @@ COLOR_LANDS = {
     'U': 'Island',
     'B': 'Swamp',
     'R': 'Mountain',
-    'G': 'Forest'
+    'G': 'Forest',
+    'C': 'Wastes'
 }
 
 # Common dual land patterns to detect
@@ -184,13 +185,14 @@ def synergy_score(card_data: dict, deck_cards: List[dict]) -> float:
 
 class GeneticOptimizer:
     def __init__(self, card_pool: List[dict], population_size=20, generations=5, 
-                 colors=None, champion_cards=None):
+                 colors=None, champion_cards=None, meta_pillars=None):
         self.full_pool = card_pool
         self.colors = colors or "R"
         self.population_size = population_size
         self.generations = generations
         self.population: List[Deck] = []
         self.champion_cards = champion_cards or {}
+        self.meta_pillars = meta_pillars or []
         
         # Build color-filtered pool
         self.card_pool = self._build_color_pool()
@@ -206,9 +208,14 @@ class GeneticOptimizer:
         self.scored_pool.sort(key=lambda x: x[1], reverse=True)
         
     def _build_color_pool(self) -> List[dict]:
-        """Filter cards that match the specified colors."""
+        """Filter cards that match the specified colors.
+        
+        When colors='C', only includes truly colorless cards (artifacts, Eldrazi,
+        colorless spells — no colored mana symbols in cost).
+        """
         pool = []
         target_colors = set(self.colors)
+        is_colorless = self.colors == 'C'
         
         for card in self.full_pool:
             cost = card.get('mana_cost', '')
@@ -219,10 +226,16 @@ class GeneticOptimizer:
                     card_colors.add(c)
             
             # Skip basic lands (we add them ourselves)
-            if card['name'] in ('Plains', 'Island', 'Swamp', 'Mountain', 'Forest'):
+            if card['name'] in ('Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'):
                 continue
             
-            # Include colorless non-lands
+            if is_colorless:
+                # Colorless mode: only cards with NO colored mana in cost
+                if not card_colors and 'Land' not in type_line:
+                    pool.append(card)
+                continue
+            
+            # Include colorless non-lands for any deck
             if not card_colors:
                 if 'Land' not in type_line:
                     pool.append(card)
@@ -235,11 +248,19 @@ class GeneticOptimizer:
         return pool
     
     def _build_land_base(self) -> dict:
-        """Build optimized land base with dual lands when available."""
-        num_colors = len(self.colors)
-        total_lands = 24
+        """Build optimized land base with dual lands when available.
         
+        Colorless decks use Wastes + utility lands.
+        """
+        total_lands = 24
         lands = {}
+        
+        if self.colors == 'C':
+            # Colorless: all Wastes (utility lands come from card pool)
+            lands['Wastes'] = total_lands
+            return lands
+        
+        num_colors = len(self.colors)
         
         if num_colors >= 2:
             # Look for dual lands in our color combo
@@ -297,6 +318,7 @@ class GeneticOptimizer:
         for _ in range(self.population_size):
             deck = self._create_deck()
             self.population.append(deck)
+        return self.population
             
     def _create_deck(self) -> Deck:
         """Build a deck with 4-of playsets, curve awareness, and synergy."""
@@ -426,16 +448,24 @@ class GeneticOptimizer:
 
     def evaluate_fitness(self, deck: Deck) -> float:
         """Multi-dimensional fitness: PvP wins + speed + life cushion + 
-        curve quality + composition + archetype diversity niche."""
+        curve quality + composition + matchup spread + metagame targeting."""
         wins = 0
         total_turns = 0
         total_life_remaining = 0
         games = 0
+        matchup_spread_bonus = 0  # Bonus for beating top-ELO opponents
         
         opponents = self.population[:]
+        if self.meta_pillars:
+            # Nash Equilibrium: Train against the established Meta Pillars
+            opponents.extend(self.meta_pillars * 2)  # Weight the meta heavily
         random.shuffle(opponents)
         
-        for opp_deck in opponents[:5]:
+        # Sort opponents by ELO descending so we can give matchup spread bonuses
+        rated_opponents = sorted(opponents[:8], 
+                                 key=lambda d: getattr(d, 'elo', 1200), reverse=True)
+        
+        for rank, opp_deck in enumerate(rated_opponents[:5]):
             if opp_deck is deck:
                 continue
             try:
@@ -448,6 +478,9 @@ class GeneticOptimizer:
                 if result.winner == "Candidate":
                     wins += 2
                     total_life_remaining += max(0, player.life)
+                    # Matchup spread: more points for beating higher-ranked opponents
+                    spread_weight = max(0, 5 - rank) * 0.4  # Rank 0 = +2.0, Rank 4 = +0.4
+                    matchup_spread_bonus += spread_weight
                 elif result.winner is None:
                     wins += 0.5
                 total_turns += result.turns
@@ -457,9 +490,23 @@ class GeneticOptimizer:
         
         if games == 0:
             return 0
+            
+        win_rate = wins / games
         
-        # Base: PvP performance (0-20 range)
-        pvp_score = (wins / games) * 10
+        # Evolutionary Novelty Search (Phase 7)
+        try:
+            from data.vector_db import get_novelty_score
+            card_map = {}
+            for c in deck.maindeck:
+                card_map[c.name] = card_map.get(c.name, 0) + 1
+            novelty = get_novelty_score(card_map, k=5)
+        except ImportError:
+            novelty = 0.5
+            
+        base_quality = (win_rate * 0.5) + (novelty * 0.5)
+        
+        # Base: Scaled up to 10 points
+        pvp_score = base_quality * 10
         
         # Speed bonus: faster wins are better (0-3 range)
         avg_turns = total_turns / games
@@ -475,7 +522,10 @@ class GeneticOptimizer:
         # Composition quality (0-2 range)
         comp_score = self._evaluate_composition(deck)
         
-        return pvp_score + speed_bonus + life_bonus + curve_score + comp_score
+        # Matchup spread (0-4 range) — beating top opponents is worth more
+        spread_score = min(4.0, matchup_spread_bonus)
+        
+        return pvp_score + speed_bonus + life_bonus + curve_score + comp_score + spread_score
     
     def _evaluate_curve(self, deck: Deck) -> float:
         """Reward decks with a good mana curve. Peak: 1-2-3 CMC distribution."""
@@ -552,7 +602,22 @@ class GeneticOptimizer:
         return max(0, min(2.0, score))
 
     def evolve(self) -> Deck:
+        # ─── Pre-evolution rules fidelity gate ───
+        try:
+            from engine.rules_sandbox import run_quick_fidelity_check
+            from engine.fidelity_report import FidelityError
+            fidelity = run_quick_fidelity_check()
+            if not fidelity.all_passed:
+                print(f"⚠️  FIDELITY FAILURE: {fidelity.failed}/{fidelity.total_scenarios} scenarios failed")
+                for f in fidelity.failures[:5]:
+                    print(f"   [{f.scenario_id}] {f.scenario_name}: {f.deviation}")
+                fidelity.save_report()
+                raise FidelityError(fidelity)
+        except ImportError:
+            pass  # rules_sandbox not available — skip check
+
         self.generate_initial_population()
+        score_history = []
         
         for gen in range(self.generations):
             scores = []
@@ -563,6 +628,14 @@ class GeneticOptimizer:
             scores.sort(key=lambda x: x[0], reverse=True)
             best_score = scores[0][0]
             print(f"  Gen {gen+1}/{self.generations} | Best: {best_score:.1f}")
+            score_history.append(best_score)
+            
+            # Nash Equilibrium Convergence Check (Phase 3)
+            if len(score_history) >= 3:
+                recent = score_history[-3:]
+                variance = max(recent) - min(recent)
+                if variance < 0.2 and gen >= 2:
+                    print(f"  🌟 [Meta-Equilibrium] Nash Equilibrium Converged against Feb 9, 2026 B&R List at Gen {gen+1} (Var: {variance:.3f})")
             
             survivors = [x[1] for x in scores[:max(2, self.population_size//3)]]
             

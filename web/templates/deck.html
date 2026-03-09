@@ -25,9 +25,35 @@
             min-width: 4px;
         }
     </style>
+    <link href="https://cdn.jsdelivr.net/npm/mana-font@latest/css/mana.css" rel="stylesheet" type="text/css" />
 </head>
 
 <body class="min-h-screen text-gray-200">
+
+    <!-- Persistent Navigation Header -->
+    <nav class="bg-gray-900 border-b border-gray-800 sticky top-0 z-50 shadow-md">
+        <div class="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+            <div class="flex items-center gap-6">
+                <a href="/"
+                    class="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 font-extrabold text-lg tracking-tight">🧬
+                    MTG Genetic League</a>
+                <div class="hidden md:flex gap-4">
+                    <a href="/"
+                        class="text-sm font-medium text-gray-300 hover:text-white transition-colors">Dashboard</a>
+                    <a href="/matches"
+                        class="text-sm font-medium text-gray-300 hover:text-white transition-colors">Matches</a>
+                    <a href="/admin/butterfly"
+                        class="text-sm font-medium text-gray-300 hover:text-white transition-colors">Admin Portal</a>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <div class="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]">
+                </div>
+                <span class="text-xs font-mono text-green-400">System Online</span>
+            </div>
+        </div>
+    </nav>
+
     <div class="max-w-6xl mx-auto px-6 py-8">
 
         <a href="/" class="text-indigo-400 hover:text-indigo-300 text-sm mb-4 inline-block">← Back to League</a>
@@ -90,17 +116,22 @@
                                 {% else %}—{% endif %}
                             </div>
                         </div>
+                        <div>
+                            <div class="text-xs text-gray-400 uppercase">G1 Win%</div>
+                            <div class="text-xl font-bold text-indigo-400">
+                                {{ deck.game1_winrate }}
+                            </div>
+                        </div>
                     </div>
                     <div class="text-xs text-gray-500 italic">Win% = Wins / (Wins+Losses) — draws excluded</div>
                     <div>
                         <div class="text-xs text-gray-400 uppercase tracking-wider">Colors</div>
                         <div class="text-2xl mt-1">
                             {% if not deck.colors %}
-                            <span class="text-gray-500">🔘 Colorless</span>
+                            <span class="text-gray-500"><i class="ms ms-c ms-cost ms-shadow"></i> Colorless</span>
                             {% else %}
                             {% for c in deck.colors %}
-                            {% if c == 'W' %}⚪{% elif c == 'U' %}🔵{% elif c == 'B' %}⚫{% elif c == 'R' %}🔴{% elif c ==
-                            'G' %}🟢{% endif %}
+                            <i class="ms ms-{{ c|lower }} ms-cost ms-shadow" style="font-size:18px;"></i>
                             {% endfor %}
                             {% endif %}
                         </div>
@@ -192,6 +223,83 @@
             </div>
         </div>
 
+        <!-- T10: Matchup Spread -->
+        {% if matchup_spread %}
+        <div class="glass rounded-2xl p-6 mt-6">
+            <h3 class="text-lg font-bold text-white mb-4">⚔️ Matchup Spread</h3>
+            <p class="text-sm text-gray-400 mb-4">Win rate breakdown by opponent archetype from simulation data.</p>
+            <div class="space-y-3">
+                {% for mu in matchup_spread %}
+                <div class="flex items-center gap-4">
+                    <div class="w-28 text-sm text-gray-300 font-medium truncate" title="{{ mu.archetype }}">{{
+                        mu.archetype }}</div>
+                    <div class="flex-1 h-6 bg-gray-800 rounded-full overflow-hidden relative">
+                        <div class="h-full rounded-full transition-all duration-500"
+                            style="width: {{ mu.win_rate }}%; background: linear-gradient(90deg, 
+                             {% if mu.win_rate >= 55 %}#22c55e, #4ade80{% elif mu.win_rate >= 45 %}#eab308, #facc15{% else %}#ef4444, #f87171{% endif %});">
+                        </div>
+                        <span
+                            class="absolute inset-0 flex items-center justify-center text-xs font-bold text-white drop-shadow-md">
+                            {{ mu.win_rate }}% ({{ mu.wins }}W / {{ mu.total }}G)
+                        </span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Hand Tester -->
+        <div class="glass rounded-2xl p-6 mt-6">
+            <h3 class="text-lg font-bold text-white mb-4">🖐️ Hand Tester</h3>
+            <p class="text-sm text-gray-400 mb-4">Draw a sample 7-card hand and ask the Neural Net for a Keep/Mulligan
+                recommendation.</p>
+
+            <div class="flex gap-4 mb-4">
+                <button type="button" onclick="drawAndEvaluateHand(event)" id="draw-hand-btn"
+                    class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold transition-colors shadow-[0_0_15px_rgba(79,70,229,0.5)]">
+                    Draw & Evaluate Hand
+                </button>
+            </div>
+
+            <div id="hand-results" class="hidden">
+                <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 mb-6" id="hand-cards">
+                    <!-- Cards injected here -->
+                </div>
+
+                <div
+                    class="bg-gray-800/80 border border-gray-700 rounded-xl p-4 flex flex-col md:flex-row gap-6 items-center justify-between">
+                    <div>
+                        <div class="text-xs text-gray-400 uppercase tracking-wider mb-1">AI Recommendation</div>
+                        <div id="ai-recommendation" class="text-2xl font-bold"></div>
+                        <div id="ai-explanation" class="text-sm text-gray-400 mt-1 italic"></div>
+                    </div>
+                    <div class="flex gap-6">
+                        <div>
+                            <div class="text-xs text-gray-400 uppercase tracking-wider mb-1">Expected Win Turn (Net)
+                            </div>
+                            <div id="ai-expected" class="text-xl font-mono text-purple-400"></div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-gray-400 uppercase tracking-wider mb-1">Heuristic Goldfish</div>
+                            <div id="ai-heuristic" class="text-xl font-mono text-gray-300"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sideboard Guide -->
+        <div class="glass rounded-2xl p-6 mt-6">
+            <h3 class="text-lg font-bold text-white mb-4">📖 Sideboard Guide</h3>
+            <p class="text-sm text-gray-400 mb-4">Aggregated heuristic recommendations for what cards to bring IN and
+                OUT against different meta archetypes based on simulation data.</p>
+
+            <div id="sideboard-guide-container" class="space-y-6">
+                <div class="text-center text-gray-500 py-4" id="sb-loading">Loading sideboard heuristics...</div>
+            </div>
+        </div>
+
         <!-- Recent Matches -->
         {% if matches %}
         <div class="glass rounded-2xl p-6 mt-6">
@@ -251,7 +359,136 @@
                 });
             }
         }
+
+        async function drawAndEvaluateHand(event) {
+            if (event) event.preventDefault();
+            const btn = document.getElementById('draw-hand-btn');
+            btn.textContent = 'Evaluating...';
+            btn.disabled = true;
+
+            try {
+                const reqBody = {
+                    deck_id: parseInt("{{ deck.id }}"),
+                    hand: [], // Server will randomly draw for us
+                    mulligan_count: 0,
+                    meta_archetype: "Midrange"
+                };
+
+                const resp = await fetch('/api/mulligan-eval', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(reqBody)
+                });
+
+                if (!resp.ok) {
+                    throw new Error(`HTTP Error: ${resp.status}`);
+                }
+
+                const data = await resp.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                // Show results
+                document.getElementById('hand-results').classList.remove('hidden');
+
+                // Render hand cards
+                const cardsContainer = document.getElementById('hand-cards');
+                cardsContainer.innerHTML = '';
+
+                data.hand.forEach(cardName => {
+                    const el = document.createElement('div');
+                    el.className = "bg-gray-800 border border-gray-700 rounded-lg p-2 text-center text-sm font-medium hover:border-indigo-500 transition-colors";
+                    el.textContent = cardName;
+                    cardsContainer.appendChild(el);
+                });
+
+                // Render stats
+                const recEl = document.getElementById('ai-recommendation');
+                recEl.textContent = data.recommendation;
+                if (data.recommendation === 'Keep') {
+                    recEl.className = "text-2xl font-bold text-green-400";
+                } else {
+                    recEl.className = "text-2xl font-bold text-red-400";
+                }
+                document.getElementById('ai-explanation').textContent = data.explanation;
+
+                document.getElementById('ai-expected').textContent = "T" + data.expected_win_turn;
+                document.getElementById('ai-heuristic').textContent = "T" + data.heuristic_win_turn;
+
+            } catch (e) {
+                console.error(e);
+                alert('Network error evaluating hand.');
+            } finally {
+                btn.textContent = 'Draw & Evaluate Hand';
+                btn.disabled = false;
+            }
+        }
+
+        async function loadSideboardGuide() {
+            try {
+                const resp = await fetch('/api/deck/{{ deck.id }}/sideboard-guide');
+                const data = await resp.json();
+                const container = document.getElementById('sideboard-guide-container');
+
+                if (!data.guide || Object.keys(data.guide).length === 0) {
+                    container.innerHTML = '<div class="text-center text-gray-500 py-4">No sideboard data available yet. Run more matches to generate guides!</div>';
+                    return;
+                }
+
+                let html = '';
+                for (const [opp, swaps] of Object.entries(data.guide)) {
+                    html += `<div class="bg-gray-800/60 rounded-xl p-4 border border-gray-700">`;
+                    html += `<h4 class="text-md font-bold text-indigo-300 mb-3">vs ${opp}</h4>`;
+                    html += `<div class="grid grid-cols-1 md:grid-cols-2 gap-4">`;
+
+                    // INs
+                    html += `<div><div class="text-xs text-green-400 uppercase font-bold mb-2">IN</div><ul class="space-y-1">`;
+                    if (swaps.in.length === 0) html += `<li class="text-sm text-gray-500 italic">None</li>`;
+                    swaps.in.forEach(c => {
+                        html += `<li class="text-sm text-gray-300 flex items-center gap-2"><span class="text-green-500 text-xs">▲</span> ${c.name}</li>`;
+                    });
+                    html += `</ul></div>`;
+
+                    // OUTs
+                    html += `<div><div class="text-xs text-red-400 uppercase font-bold mb-2">OUT</div><ul class="space-y-1">`;
+                    if (swaps.out.length === 0) html += `<li class="text-sm text-gray-500 italic">None</li>`;
+                    swaps.out.forEach(c => {
+                        html += `<li class="text-sm text-gray-300 flex items-center gap-2"><span class="text-red-500 text-xs">▼</span> ${c.name}</li>`;
+                    });
+                    html += `</ul></div>`;
+
+                    html += `</div></div>`;
+                }
+                container.innerHTML = html;
+            } catch (e) {
+                console.error(e);
+                if (document.getElementById('sideboard-guide-container')) {
+                    document.getElementById('sideboard-guide-container').innerHTML = '<div class="text-center text-red-400 py-4">Error loading sideboard guide.</div>';
+                }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', loadSideboardGuide);
+
     </script>
+
+
+    <!-- Dev Footer -->
+    <footer class="bg-gray-900 border-t border-gray-800 py-6 mt-12 w-full">
+        <div class="max-w-7xl mx-auto px-6 flex justify-between items-center text-xs text-gray-500">
+            <div>MTG Simulator Alpha v0.9 • 2026 Engine Rules 100% Core</div>
+            <div class="flex gap-4">
+                <a href="/admin/butterfly" class="hover:text-indigo-400 transition-colors flex items-center gap-1">
+                    ⚙️ Admin Portal
+                </a>
+                <a href="https://github.com/MTGGeneticLeague" class="hover:text-white transition-colors"
+                    target="_blank">GitHub Repo</a>
+            </div>
+        </div>
+    </footer>
+
 </body>
 
 </html>

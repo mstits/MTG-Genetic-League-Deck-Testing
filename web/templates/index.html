@@ -138,9 +138,35 @@
             display: inline-block;
         }
     </style>
+    <link href="https://cdn.jsdelivr.net/npm/mana-font@latest/css/mana.css" rel="stylesheet" type="text/css" />
 </head>
 
 <body class="min-h-screen text-gray-200">
+
+    <!-- Persistent Navigation Header -->
+    <nav class="bg-gray-900 border-b border-gray-800 sticky top-0 z-50 shadow-md">
+        <div class="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+            <div class="flex items-center gap-6">
+                <a href="/"
+                    class="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 font-extrabold text-lg tracking-tight">🧬
+                    MTG Genetic League</a>
+                <div class="hidden md:flex gap-4">
+                    <a href="/"
+                        class="text-sm font-medium text-gray-300 hover:text-white transition-colors">Dashboard</a>
+                    <a href="/matches"
+                        class="text-sm font-medium text-gray-300 hover:text-white transition-colors">Matches</a>
+                    <a href="/admin/butterfly"
+                        class="text-sm font-medium text-gray-300 hover:text-white transition-colors">Admin Portal</a>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <div class="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]">
+                </div>
+                <span class="text-xs font-mono text-green-400">System Online</span>
+            </div>
+        </div>
+    </nav>
+
 
     <!-- Header -->
     <div class="header-gradient px-6 py-5">
@@ -208,6 +234,7 @@
                             <th class="p-3 text-left w-12">#</th>
                             <th class="p-3 text-left">Deck Name</th>
                             <th class="p-3 text-left">Colors</th>
+                            <th class="p-3 text-center" title="Salt Bracket">🧂 Bracket</th>
                             <th class="p-3 text-left">Division</th>
                             <th class="p-3 text-left">Elo</th>
                             <th class="p-3 text-left">Record</th>
@@ -216,7 +243,7 @@
                     </thead>
                     <tbody id="leaderboard-body">
                         <tr>
-                            <td colspan="7" class="p-6 text-center text-gray-500">Loading...</td>
+                            <td colspan="8" class="p-6 text-center text-gray-500">Loading...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -241,6 +268,9 @@
                             <button onclick="setBuilderMode('paste')" id="mode-paste"
                                 class="px-3 py-1.5 rounded-lg text-xs font-semibold tab-inactive transition-all">📋
                                 Paste List</button>
+                            <button onclick="setBuilderMode('flex')" id="mode-flex"
+                                class="px-3 py-1.5 rounded-lg text-xs font-semibold tab-inactive transition-all">🧪
+                                Flex Slots</button>
                         </div>
                         <div id="deck-count" class="text-xs font-mono text-gray-500">0 cards</div>
                     </div>
@@ -322,12 +352,57 @@
                             formats</span>
                     </div>
 
+                    <!-- Flex Mode (hidden by default) -->
+                    <div id="builder-flex" class="hidden">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="text-xs text-gray-400 font-bold mb-1 block">Core Deck (e.g. 56
+                                    cards)</label>
+                                <textarea id="flex-core-input" rows="12"
+                                    class="w-full bg-gray-900 border border-gray-700 rounded-xl p-3 text-xs text-gray-200 font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none resize-none"
+                                    placeholder="4 Lightning Bolt..."></textarea>
+                            </div>
+                            <div>
+                                <label class="text-xs text-blue-400 font-bold mb-1 block">Flex Pool (Cards to
+                                    test)</label>
+                                <textarea id="flex-pool-input" rows="12"
+                                    class="w-full bg-gray-900 border border-blue-900/50 rounded-xl p-3 text-xs text-blue-200 font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none resize-none"
+                                    placeholder="Grim Lavamancer\nSkullcrack..."></textarea>
+                            </div>
+                        </div>
+                        <span class="text-xs text-gray-500 mt-2 block">Tests all valid 60-card combinations against the
+                            Gauntlet bosses. This determines the mathematically optimal flex slots for your deck.</span>
+                    </div>
+
                     <!-- Submit -->
-                    <div class="flex justify-end mt-3">
-                        <button id="test-btn" onclick="testDeck()"
-                            class="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg font-semibold text-sm hover:from-indigo-500 hover:to-purple-500 transition-all shadow-lg hover:shadow-indigo-500/30">
-                            ⚡ Test Deck
+                    <div class="flex justify-between mt-3 flex-wrap items-center">
+                        <button onclick="checkManaBase()"
+                            class="px-4 py-2.5 bg-gray-800 text-gray-300 rounded-lg text-sm font-semibold hover:bg-gray-700 transition-all border border-gray-700 shadow-sm flex items-center gap-1 mb-2 sm:mb-0">
+                            💧 Check Mana Base
                         </button>
+
+                        <div class="flex gap-2">
+                            <div class="flex justify-end" id="submit-standard">
+                                <button id="test-btn" onclick="testDeck()"
+                                    class="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg font-semibold text-sm hover:from-indigo-500 hover:to-purple-500 transition-all shadow-lg hover:shadow-indigo-500/30">
+                                    ⚡ Test Deck
+                                </button>
+                            </div>
+                            <div class="flex justify-end hidden" id="submit-flex">
+                                <button id="test-flex-btn" onclick="testFlexSlots()"
+                                    class="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg font-semibold text-sm hover:from-blue-500 hover:to-indigo-500 transition-all shadow-lg hover:shadow-blue-500/30 flex items-center gap-2">
+                                    🧪 Run Flex Tester
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Mana Analytics Results (Hidden by Default) -->
+                    <div id="mana-check-results" class="hidden mt-4">
+                        <div class="bg-gray-800/80 border border-gray-700 rounded-xl p-4">
+                            <h3 class="text-sm font-bold text-blue-300 mb-2">Mana Base Analytics</h3>
+                            <div id="mana-check-content" class="text-sm"></div>
+                        </div>
                     </div>
                 </div>
 
@@ -452,15 +527,37 @@
         let searchTimeout = null;
         let builderMode = 'search';
 
-        const COLOR_ICONS = { W: '⚪', U: '🔵', B: '⚫', R: '🔴', G: '🟢', C: '◆' };
-        const COLOR_BG = { W: 'bg-yellow-200/20 text-yellow-300', U: 'bg-blue-500/20 text-blue-300', B: 'bg-gray-600/20 text-gray-300', R: 'bg-red-500/20 text-red-300', G: 'bg-green-500/20 text-green-300' };
+        const COLOR_ICONS = {
+            W: '<i class="ms ms-w ms-cost" style="color:#F9FAF4;background:linear-gradient(135deg,#F9FAF4,#E8E4D4);border-radius:50%;font-size:14px;"></i>',
+            U: '<i class="ms ms-u ms-cost" style="color:#0E68AB;background:linear-gradient(135deg,#0E68AB,#14559A);border-radius:50%;font-size:14px;"></i>',
+            B: '<i class="ms ms-b ms-cost" style="color:#150B00;background:linear-gradient(135deg,#150B00,#2B1E13);border-radius:50%;font-size:14px;"></i>',
+            R: '<i class="ms ms-r ms-cost" style="color:#D3202A;background:linear-gradient(135deg,#D3202A,#C12A2F);border-radius:50%;font-size:14px;"></i>',
+            G: '<i class="ms ms-g ms-cost" style="color:#00733E;background:linear-gradient(135deg,#00733E,#006635);border-radius:50%;font-size:14px;"></i>',
+            C: '<i class="ms ms-c ms-cost" style="color:#A0A0A0;background:linear-gradient(135deg,#BEB9B2,#A09D98);border-radius:50%;font-size:14px;"></i>'
+        };
+        const COLOR_BG = { W: 'bg-yellow-200/20 text-yellow-300', U: 'bg-blue-500/20 text-blue-300', B: 'bg-gray-600/20 text-gray-300', R: 'bg-red-500/20 text-red-300', G: 'bg-green-500/20 text-green-300', C: 'bg-gray-500/20 text-gray-400' };
 
         function setBuilderMode(mode) {
             builderMode = mode;
             document.getElementById('builder-search').classList.toggle('hidden', mode !== 'search');
             document.getElementById('builder-paste').classList.toggle('hidden', mode !== 'paste');
+
+            const flexEl = document.getElementById('builder-flex');
+            if (flexEl) flexEl.classList.toggle('hidden', mode !== 'flex');
+
             document.getElementById('mode-search').className = 'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ' + (mode === 'search' ? 'tab-active' : 'tab-inactive');
             document.getElementById('mode-paste').className = 'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ' + (mode === 'paste' ? 'tab-active' : 'tab-inactive');
+
+            const modeFlex = document.getElementById('mode-flex');
+            if (modeFlex) modeFlex.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ' + (mode === 'flex' ? 'tab-active' : 'tab-inactive');
+
+            const subStd = document.getElementById('submit-standard');
+            const subFlex = document.getElementById('submit-flex');
+            const cnt = document.getElementById('deck-count');
+
+            if (subStd) subStd.classList.toggle('hidden', mode === 'flex');
+            if (subFlex) subFlex.classList.toggle('hidden', mode !== 'flex');
+            if (cnt) cnt.classList.toggle('hidden', mode === 'flex');
         }
 
         // Card search with debounce
@@ -503,9 +600,8 @@
         function formatManaCost(cost) {
             if (!cost) return '';
             return cost.replace(/\{([^}]+)\}/g, (_, m) => {
-                if ('WUBRGC'.includes(m)) return COLOR_ICONS[m] || m;
-                if (m.includes('/')) return m.split('/').map(c => COLOR_ICONS[c] || c).join('/');
-                return m;
+                const key = m.toLowerCase().replace('/', '');
+                return `<i class="ms ms-${key} ms-cost ms-shadow text-base"></i>`;
             });
         }
 
@@ -601,8 +697,7 @@
             if (!colors.size) { el.innerHTML = ''; return; }
             el.innerHTML = [...colors].map(c =>
                 `<span
-                class="px-2 py-0.5 rounded-full text-xs font-medium ${COLOR_BG[c] || 'bg-gray-700 text-gray-400'}">${COLOR_ICONS[c] || c}
-                ${c}</span>`
+                class="flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium ${COLOR_BG[c] || 'bg-gray-700 text-gray-400'}"><i class="ms ms-${c.toLowerCase()} ms-cost ms-shadow text-xs"></i></span>`
             ).join('');
         }
 
@@ -713,6 +808,167 @@
             }
         }
 
+        async function testFlexSlots() {
+            const coreInput = document.getElementById('flex-core-input').value.trim();
+            const poolInput = document.getElementById('flex-pool-input').value.trim();
+
+            if (!coreInput || !poolInput) return;
+
+            const btn = document.getElementById('test-flex-btn');
+            const results = document.getElementById('test-results');
+            const content = document.getElementById('test-results-content');
+            const placeholder = document.getElementById('test-placeholder');
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner mr-2 border-white"></span>Running Combinatorics...';
+            placeholder.classList.add('hidden');
+            results.classList.remove('hidden');
+            content.innerHTML = `
+            <div class="flex flex-col items-center justify-center py-12 fade-in">
+                <div class="spinner mb-4" style="width:40px;height:40px;border-width:4px"></div>
+                <p class="text-blue-400 font-bold mb-1 text-lg">A/B Testing Flex Slots</p>
+                <p class="text-gray-400 text-sm">Generating combinatorics and running Gauntlet matches for every permutation...</p>
+                <p class="text-gray-600 text-xs mt-2">This may take 30-90 seconds depending on flex pool size</p>
+            </div>`;
+
+            try {
+                const resp = await fetch('/api/flex-test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ core_decklist: coreInput, flex_pool: poolInput })
+                });
+                const data = await resp.json();
+
+                if (data.error) {
+                    content.innerHTML = `
+            <div class="bg-red-900/30 border border-red-700 rounded-xl p-4 fade-in">
+                <p class="text-red-400 font-medium">❌ ${data.error}</p>
+            </div>`;
+                    return;
+                }
+
+                let rowsHtml = '';
+                for (let i = 0; i < data.results.length; i++) {
+                    const r = data.results[i];
+                    // r.flex_cards is an object: {"Card": count, ...}
+                    let flexStr = Object.entries(r.flex_cards).map(([name, count]) => `<span class="bg-blue-900/30 text-blue-300 px-1.5 py-0.5 rounded text-xs border border-blue-700/50">${count}× ${name}</span>`).join(' ');
+                    if (!flexStr) flexStr = `<span class="text-gray-500 italic">No flex cards</span>`;
+
+                    const isOptimal = i === 0;
+
+                    rowsHtml += `
+            <tr class="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors ${isOptimal ? 'bg-indigo-900/20' : ''}">
+                <td class="p-3 text-sm font-medium ${isOptimal ? 'text-indigo-400' : 'text-gray-400'}">
+                    #${i + 1}
+                    ${isOptimal ? ' <span class="text-xs bg-indigo-600 text-white px-1.5 rounded ml-1">Optimal</span>' : ''}
+                </td>
+                <td class="p-3 text-sm flex gap-1 flex-wrap">${flexStr}</td>
+                <td class="p-3 text-sm text-gray-300 font-mono">${r.record}</td>
+                <td class="p-3 text-sm font-bold ${isOptimal ? 'text-green-400' : 'text-gray-300'}">${r.win_rate}%</td>
+            </tr>`;
+                }
+
+                content.innerHTML = `
+            <div class="fade-in">
+                <div class="bg-blue-900/20 border border-blue-800 rounded-xl p-4 mb-4">
+                    <h3 class="text-blue-400 font-bold mb-1">Flex Slot Results</h3>
+                    <p class="text-xs text-gray-400">Tested combinations of the provided flex pool against all Gauntlet bosses. Ranked by average win rate.</p>
+                </div>
+                
+                <div class="max-h-[500px] overflow-y-auto w-full custom-scrollbar pr-2">
+                    <table class="w-full text-sm">
+                        <thead class="sticky top-0 bg-[#0a0e1a] z-10">
+                            <tr class="text-gray-400 text-xs uppercase border-b border-gray-700">
+                                <th class="p-2 text-left w-16">Rank</th>
+                                <th class="p-2 text-left">Flex Slots Inserted</th>
+                                <th class="p-2 text-left w-24">Record</th>
+                                <th class="p-2 text-left w-20">Win %</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rowsHtml}</tbody>
+                    </table>
+                </div>
+            </div>`;
+            } catch (e) {
+                content.innerHTML = `<div class="bg-red-900/30 border border-red-700 rounded-xl p-4">
+                <p class="text-red-400">Error: ${e.message}</p>
+            </div>`;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '🧪 Run Flex Tester';
+            }
+        }
+
+        async function checkManaBase() {
+            const input = getDecklistString();
+            if (!input) return;
+
+            const btn = event.currentTarget;
+            btn.innerHTML = '<span class="spinner mr-2"></span> Checking...';
+            btn.disabled = true;
+
+            try {
+                const resp = await fetch('/api/mana-calc', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ decklist: input })
+                });
+                const data = await resp.json();
+
+                const container = document.getElementById('mana-check-results');
+                const content = document.getElementById('mana-check-content');
+                container.classList.remove('hidden');
+
+                if (data.error) {
+                    content.innerHTML = `<span class="text-red-400">${data.error}</span>`;
+                    return;
+                }
+
+                const r = data.results;
+                if (!r || !r.requirements || Object.keys(r.requirements).length === 0) {
+                    content.innerHTML = `<span class="text-gray-400">Not enough spells with colored mana requirements to analyze.</span>`;
+                    return;
+                }
+
+                let html = '<div class="space-y-3">';
+                // Show source counts
+                let sourcesHtml = Object.entries(r.sources).filter(([k, v]) => v > 0).map(([k, v]) => `<span class="mr-3"><i class="ms ms-${k.toLowerCase()} ms-cost text-xs shadow-sm shadow-black"></i> <span class="text-gray-200 font-mono">${v}</span></span>`).join('');
+                html += `<div class="text-xs text-gray-400 bg-gray-900 border border-gray-700 rounded-lg p-2 mb-3">Detected Sources: ${sourcesHtml || 'None'}</div>`;
+
+                // Show requirements
+                for (const [color, req] of Object.entries(r.requirements)) {
+                    const statusColor = req.status === 'OK' ? 'text-green-400' : req.status === 'WARNING' ? 'text-yellow-400' : 'text-red-400';
+                    const icon = req.status === 'OK' ? '✅' : req.status === 'WARNING' ? '⚠️' : '🚨';
+                    html += `
+                        <div class="flex justify-between items-center border-t border-gray-700/50 pt-2">
+                            <div class="flex items-center gap-2 text-sm w-1/2">
+                                <i class="ms ms-${color.toLowerCase()} ms-cost text-base shadow-sm rounded-full bg-black"></i>
+                                <div class="truncate pr-2">
+                                    <div class="text-gray-200 truncate flex items-center gap-2">${req.card} ${req.status !== 'OK' ? '<span class="px-1 bg-red-900/40 text-red-300 text-[10px] rounded border border-red-700/50 uppercase">Greedy</span>' : ''}</div>
+                                    <div class="text-[10px] text-gray-500">Requires ${req.pips} pip(s) by Turn ${req.cmc}</div>
+                                </div>
+                            </div>
+                            <div class="text-right flex-shrink-0">
+                                <div class="${statusColor} font-bold text-sm tracking-tight flex items-center gap-1">${icon} ${req.probability}%</div>
+                                <div class="text-[10px] text-gray-500 uppercase tracking-wide mt-[2px]">${req.sources} sources</div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // Add Frank Karsten context note
+                html += `<div class="mt-4 pt-3 border-t border-gray-700/50 text-[10px] text-gray-500 italic max-w-sm">Calculated using Karsten's hypergeometric math (>=90% target to cast on curve).</div>`
+                html += '</div>';
+                content.innerHTML = html;
+
+            } catch (e) {
+                console.error(e);
+            } finally {
+                btn.innerHTML = '💧 Check Mana Base';
+                btn.disabled = false;
+            }
+        }
+
         // Initial load
         loadData('leaderboard');
         fetch('/api/stats').then(r => r.text()).then(h => {
@@ -727,6 +983,21 @@
             });
         }, 5000);
     </script>
+
+    <!-- Dev Footer -->
+    <footer class="bg-gray-900 border-t border-gray-800 py-6 mt-12 w-full">
+        <div class="max-w-7xl mx-auto px-6 flex justify-between items-center text-xs text-gray-500">
+            <div>MTG Simulator Alpha v0.9 • 2026 Engine Rules 100% Core</div>
+            <div class="flex gap-4">
+                <a href="/admin/butterfly" class="hover:text-indigo-400 transition-colors flex items-center gap-1">
+                    ⚙️ Admin Portal
+                </a>
+                <a href="https://github.com/MTGGeneticLeague" class="hover:text-white transition-colors"
+                    target="_blank">GitHub Repo</a>
+            </div>
+        </div>
+    </footer>
+
 </body>
 
 </html>

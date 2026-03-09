@@ -22,7 +22,10 @@ class GameResult:
     winner: Optional[str]
     turns: int
     outcome: str
+    resolution_reason: Optional[str] = None
     game_log: List[str] = field(default_factory=list)
+    snapshots: List[dict] = field(default_factory=list)
+    mulligan_counts: dict = field(default_factory=dict)
 
 
 class StatsCollector:

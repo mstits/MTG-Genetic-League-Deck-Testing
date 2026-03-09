@@ -78,9 +78,35 @@
             align-items: center;
         }
     </style>
+    <link href="https://cdn.jsdelivr.net/npm/mana-font@latest/css/mana.css" rel="stylesheet" type="text/css" />
 </head>
 
 <body class="text-gray-200 h-screen flex flex-col">
+
+    <!-- Persistent Navigation Header -->
+    <nav class="bg-gray-900 border-b border-gray-800 sticky top-0 z-50 shadow-md">
+        <div class="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+            <div class="flex items-center gap-6">
+                <a href="/"
+                    class="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 font-extrabold text-lg tracking-tight">🧬
+                    MTG Genetic League</a>
+                <div class="hidden md:flex gap-4">
+                    <a href="/"
+                        class="text-sm font-medium text-gray-300 hover:text-white transition-colors">Dashboard</a>
+                    <a href="/matches"
+                        class="text-sm font-medium text-gray-300 hover:text-white transition-colors">Matches</a>
+                    <a href="/admin/butterfly"
+                        class="text-sm font-medium text-gray-300 hover:text-white transition-colors">Admin Portal</a>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <div class="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]">
+                </div>
+                <span class="text-xs font-mono text-green-400">System Online</span>
+            </div>
+        </div>
+    </nav>
+
     <!-- Header -->
     <div class="h-14 border-b border-gray-800 flex items-center justify-between px-6 bg-gray-900/90 z-10">
         <a href="/matches" class="text-gray-400 hover:text-white text-sm">← Exit Replay</a>
@@ -95,6 +121,26 @@
     </div>
 
     <div class="flex-1 flex overflow-hidden">
+        <!-- Evaluation Bar -->
+        <div class="w-10 bg-gray-950 border-r border-gray-800 flex flex-col relative shadow-[inset_0_0_10px_rgba(0,0,0,0.8)]"
+            title="Win Probability (Chess Evaluation Bar)">
+            <div id="eval-bar-p2"
+                class="w-full bg-red-800/80 transition-all duration-500 ease-in-out border-b border-gray-900"
+                style="height: 50%;"></div>
+            <div id="eval-bar-p1" class="w-full bg-blue-800/80 transition-all duration-500 ease-in-out"
+                style="height: 50%;"></div>
+
+            <!-- Contextual marker -->
+            <div id="eval-marker"
+                class="absolute left-0 w-full h-0.5 bg-yellow-400 z-10 transition-all duration-500 ease-in-out"
+                style="top: 50%;"></div>
+
+            <div class="absolute inset-0 flex flex-col justify-between items-center py-4 pointer-events-none">
+                <span class="text-[10px] font-mono font-bold text-red-200 z-20" id="eval-text-p2">50</span>
+                <span class="text-[10px] font-mono font-bold text-blue-200 z-20" id="eval-text-p1">50</span>
+            </div>
+        </div>
+
         <!-- Main Board -->
         <div
             class="flex-1 flex flex-col bg-[url('https://c1.scryfall.com/file/scryfall-cards/art_crop/front/3/9/39d51c5e-26cb-4276-a676-fabfef86620f.jpg?1562906281')] bg-cover bg-center">
@@ -108,6 +154,7 @@
                             <span class="font-bold text-red-200" id="p2-name">Opponent</span>
                         </div>
                         <div class="flex gap-4 text-sm font-mono">
+                            <span class="text-gray-400" title="Salt Bracket">🧂 <span id="p2-salt">?</span></span>
                             <span class="text-red-400">♥ <span id="p2-hp">20</span></span>
                             <span class="text-blue-400">🎴 <span id="p2-cards">7</span></span>
                             <span class="text-yellow-600">🏔️ <span id="p2-lands">0</span></span>
@@ -138,6 +185,7 @@
                             <span class="font-bold text-blue-200" id="p1-name">Me</span>
                         </div>
                         <div class="flex gap-4 text-sm font-mono">
+                            <span class="text-gray-400" title="Salt Bracket">🧂 <span id="p1-salt">?</span></span>
                             <span class="text-red-400">♥ <span id="p1-hp">20</span></span>
                             <span class="text-blue-400">🎴 <span id="p1-cards">7</span></span>
                             <span class="text-yellow-600">🏔️ <span id="p1-lands">0</span></span>
@@ -160,6 +208,8 @@
     <!-- Data Injection -->
     <script>
         const matchData = {{ match_data | tojson }};
+        const p1Bracket = {{ d1_bracket | default ('1') }};
+        const p2Bracket = {{ d2_bracket | default ('1') }};
         console.log("Loaded Match Data:", matchData);
 
         let currentGameIdx = 0;
@@ -193,10 +243,12 @@
             document.getElementById('p1-hp').innerText = turn.p1.hp;
             document.getElementById('p1-cards').innerText = turn.p1.cards;
             document.getElementById('p1-lands').innerText = turn.p1.lands;
+            document.getElementById('p1-salt').innerText = p1Bracket;
 
             document.getElementById('p2-hp').innerText = turn.p2.hp;
             document.getElementById('p2-cards').innerText = turn.p2.cards;
             document.getElementById('p2-lands').innerText = turn.p2.lands;
+            document.getElementById('p2-salt').innerText = p2Bracket;
 
             // Boards
             const p1BoardEl = document.getElementById('p1-board');
@@ -204,6 +256,36 @@
 
             const p2BoardEl = document.getElementById('p2-board');
             p2BoardEl.innerHTML = turn.p2.board.map(renderCard).join('');
+
+            // Update Evaluation Bar (Win Probability)
+            if (turn.win_prob !== undefined) {
+                // win_prob is P1's advantage (0 to 1) 
+                const p1Perc = Math.max(0, Math.min(100, turn.win_prob * 100));
+                const p2Perc = 100 - p1Perc;
+
+                document.getElementById('eval-bar-p2').style.height = `${p2Perc}%`;
+                document.getElementById('eval-bar-p1').style.height = `${p1Perc}%`;
+
+                document.getElementById('eval-text-p1').innerText = p1Perc.toFixed(0);
+                document.getElementById('eval-text-p2').innerText = p2Perc.toFixed(0);
+
+                document.getElementById('eval-marker').style.top = `${p2Perc}%`;
+
+                // Highlight Punts (Swings > 15%)
+                if (currentTurnIdx > 0) {
+                    const prevTurn = getGame().turns[currentTurnIdx - 1];
+                    if (prevTurn && prevTurn.win_prob !== undefined) {
+                        const delta = Math.abs(turn.win_prob - prevTurn.win_prob);
+                        if (delta > 0.15) {
+                            document.getElementById('eval-marker').classList.add('bg-white', 'shadow-[0_0_15px_rgba(255,255,255,1)]', 'scale-y-[2]');
+                            document.getElementById('eval-marker').classList.remove('bg-yellow-400');
+                        } else {
+                            document.getElementById('eval-marker').classList.add('bg-yellow-400');
+                            document.getElementById('eval-marker').classList.remove('bg-white', 'shadow-[0_0_15px_rgba(255,255,255,1)]', 'scale-y-[2]');
+                        }
+                    }
+                }
+            }
 
             // Log - Highlight current actions
             const logEl = document.getElementById('log-container');
@@ -214,7 +296,35 @@
             // Let's show current turn's actions.
             turn.actions.forEach(line => {
                 const div = document.createElement('div');
-                div.className = "p-2 rounded bg-gray-800/50 border-l-2 border-indigo-500";
+                const lc = line.toLowerCase();
+
+                // Color-code different event types for visual richness
+                if (lc.includes('lifelink') || lc.includes('gains') && lc.includes('life')) {
+                    div.className = "p-2 rounded bg-green-900/40 border-l-2 border-green-500 text-green-300";
+                } else if (lc.includes('deals') && lc.includes('damage') || lc.includes('deals') && lc.includes('life')) {
+                    div.className = "p-2 rounded bg-red-900/30 border-l-2 border-red-500 text-red-300";
+                } else if (lc.includes('sba:') || lc.includes('dies') || lc.includes('destroy')) {
+                    div.className = "p-2 rounded bg-red-900/40 border-l-2 border-red-600 text-red-400 font-bold";
+                } else if (lc.includes('prowess') || lc.includes('ability') || lc.includes('trigger') || lc.includes('+1/+1')) {
+                    div.className = "p-2 rounded bg-purple-900/40 border-l-2 border-purple-500 text-purple-300";
+                } else if (lc.includes('token') || lc.includes('creates')) {
+                    div.className = "p-2 rounded bg-yellow-900/30 border-l-2 border-yellow-500 text-yellow-300";
+                } else if (lc.includes('draw') || lc.includes('draws')) {
+                    div.className = "p-2 rounded bg-blue-900/30 border-l-2 border-blue-500 text-blue-300";
+                } else if (lc.includes('attacks') || lc.includes('blocking')) {
+                    div.className = "p-2 rounded bg-orange-900/30 border-l-2 border-orange-500 text-orange-300 font-semibold";
+                } else if (lc.includes('casts') || lc.includes('announces')) {
+                    div.className = "p-2 rounded bg-indigo-900/40 border-l-2 border-indigo-500 text-indigo-300";
+                } else if (lc.includes('plays') && !lc.includes('board')) {
+                    div.className = "p-2 rounded bg-gray-800/50 border-l-2 border-gray-500 text-gray-400";
+                } else if (lc.includes('taps') || lc.includes('for ')) {
+                    div.className = "p-1.5 rounded bg-gray-800/30 border-l-2 border-gray-600 text-gray-500 text-[10px]";
+                } else if (lc.startsWith('→') || lc.startsWith('targeting')) {
+                    div.className = "p-2 rounded bg-cyan-900/30 border-l-2 border-cyan-500 text-cyan-300";
+                } else {
+                    div.className = "p-2 rounded bg-gray-800/50 border-l-2 border-gray-600 text-gray-400";
+                }
+
                 div.innerText = line;
                 logEl.appendChild(div);
             });
@@ -244,6 +354,21 @@
             if (e.key === 'ArrowLeft') prevTurn();
         });
     </script>
+
+    <!-- Dev Footer -->
+    <footer class="bg-gray-900 border-t border-gray-800 py-6 mt-12 w-full">
+        <div class="max-w-7xl mx-auto px-6 flex justify-between items-center text-xs text-gray-500">
+            <div>MTG Simulator Alpha v0.9 • 2026 Engine Rules 100% Core</div>
+            <div class="flex gap-4">
+                <a href="/admin/butterfly" class="hover:text-indigo-400 transition-colors flex items-center gap-1">
+                    ⚙️ Admin Portal
+                </a>
+                <a href="https://github.com/MTGGeneticLeague" class="hover:text-white transition-colors"
+                    target="_blank">GitHub Repo</a>
+            </div>
+        </div>
+    </footer>
+
 </body>
 
 </html>

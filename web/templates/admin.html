@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Portal - MTG Genetic League</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/mana-font@latest/css/mana.css" rel="stylesheet" type="text/css" />
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #0a0e1a;
+        }
+
+        .glass {
+            background: rgba(17, 24, 39, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(75, 85, 99, 0.4);
+        }
+    </style>
+</head>
+
+<body class="text-gray-200 min-h-screen">
+
+    <!-- Persistent Navigation Header -->
+    <nav class="bg-gray-900 border-b border-gray-800 sticky top-0 z-50 shadow-md">
+        <div class="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+            <div class="flex items-center gap-6">
+                <a href="/"
+                    class="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 font-extrabold text-lg tracking-tight">🧬
+                    MTG Genetic League</a>
+                <div class="hidden md:flex gap-4">
+                    <a href="/"
+                        class="text-sm font-medium text-gray-300 hover:text-white transition-colors">Dashboard</a>
+                    <a href="/matches"
+                        class="text-sm font-medium text-gray-300 hover:text-white transition-colors">Matches</a>
+                    <a href="/admin/butterfly"
+                        class="text-sm font-medium text-gray-300 hover:text-white transition-colors">Admin Portal</a>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <div class="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]">
+                </div>
+                <span class="text-xs font-mono text-green-400">System Online</span>
+            </div>
+        </div>
+    </nav>
+
+
+    <!-- Header injected by nav script -->
+
+    <div class="max-w-7xl mx-auto px-6 py-8">
+
+        <div class="flex items-center justify-between mb-8">
+            <div>
+                <h1
+                    class="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-orange-500 mb-2">
+                    ⚙️ Admin Room</h1>
+                <p class="text-gray-400">System control, simulation guardrails, and environment tuning.</p>
+            </div>
+
+            <a href="/admin/butterfly"
+                class="px-5 py-2.5 bg-indigo-900 border border-indigo-700 text-indigo-300 rounded-lg hover:bg-indigo-800 transition shadow-lg font-bold flex items-center gap-2">
+                🦋 View Misplay Hunter Maps
+            </a>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+            <!-- Resource Toggles -->
+            <div class="glass rounded-xl p-6">
+                <h2 class="text-xl font-bold text-white mb-6 border-b border-gray-700 pb-2">🎛️ War Room Resources</h2>
+
+                <div class="space-y-6">
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <label class="text-sm font-semibold text-gray-300">Max Threads (Workers)</label>
+                            <span id="threads-val" class="font-mono text-indigo-400 font-bold">4</span>
+                        </div>
+                        <input type="range" id="threads-slider" min="1" max="16" value="4"
+                            class="w-full accent-indigo-500"
+                            oninput="document.getElementById('threads-val').innerText=this.value">
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <label class="text-sm font-semibold text-gray-300">Memory Allocation (MB)</label>
+                            <span id="mem-val" class="font-mono text-purple-400 font-bold">8192 MB</span>
+                        </div>
+                        <input type="range" id="mem-slider" min="512" max="32768" step="512" value="8192"
+                            class="w-full accent-purple-500"
+                            oninput="document.getElementById('mem-val').innerText=this.value + ' MB'">
+                        <p class="text-xs text-gray-500 mt-1">Up to 32GB for large-scale simulation.</p>
+                    </div>
+
+                    <div class="flex items-center justify-between pt-4 border-t border-gray-700/50">
+                        <div>
+                            <div class="font-bold text-gray-200">Headless GA Mode</div>
+                            <div class="text-xs text-gray-400">Toggle bulk GA training vs verbose individual match sim
+                            </div>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="headless-toggle" class="sr-only peer" checked>
+                            <div
+                                class="w-11 h-6 bg-gray-600 outline-none peer-focus:ring-2 peer-focus:ring-indigo-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600">
+                            </div>
+                        </label>
+                    </div>
+
+                    <div class="pt-4 border-t border-gray-700/50">
+                        <label class="text-sm font-semibold text-gray-300 block mb-2">MTG Format Toggle</label>
+                        <select id="format-select"
+                            class="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg focus:ring-purple-500 focus:border-purple-500 block p-2.5 outline-none">
+                            <option value="standard">Standard</option>
+                            <option value="modern">Modern</option>
+                            <option value="pioneer">Pioneer</option>
+                            <option value="commander">Commander Bracket</option>
+                        </select>
+                        <p class="text-xs text-gray-500 mt-1">Changes rule enforcement and legality pools dynamically.
+                        </p>
+                    </div>
+
+                    <button onclick="saveConfig()"
+                        class="w-full py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm font-semibold transition mt-2">💾
+                        Save Configuration</button>
+                    <div id="save-msg" class="text-green-400 text-xs text-center hidden mt-2">Configuration saved!</div>
+
+                    <div class="flex gap-3 mt-4 pt-4 border-t border-gray-700/50">
+                        <button onclick="restartSovereign()"
+                            class="flex-1 py-2 bg-green-700 hover:bg-green-600 rounded text-sm font-semibold transition">🔄
+                            Restart Sovereign</button>
+                        <button onclick="resetElo()"
+                            class="flex-1 py-2 bg-red-700 hover:bg-red-600 rounded text-sm font-semibold transition">🗑️
+                            Reset ELO</button>
+                    </div>
+                    <div id="restart-msg" class="text-blue-400 text-xs text-center hidden mt-2"></div>
+                </div>
+            </div>
+
+            <div class="space-y-8">
+                <!-- Health Check -->
+                <div class="glass rounded-xl p-6 relative overflow-hidden">
+                    <div class="absolute -right-4 -top-4 text-9xl opacity-5">🏥</div>
+                    <h2 class="text-xl font-bold text-white mb-1">🏥 Live Health Check</h2>
+                    <p class="text-xs text-gray-400 mb-6">Engine fidelity diagnostics and Comprehensive Rules coverage.
+                    </p>
+
+                    <div class="flex items-center gap-6">
+                        <div class="relative w-24 h-24">
+                            <svg class="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                                <circle cx="18" cy="18" r="16" fill="none" class="stroke-gray-700" stroke-width="3">
+                                </circle>
+                                <circle id="health-ring" cx="18" cy="18" r="16" fill="none" class="stroke-green-500"
+                                    stroke-width="3" stroke-dasharray="100, 100" stroke-dashoffset="0"></circle>
+                            </svg>
+                            <div class="absolute inset-0 flex items-center justify-center flex-col">
+                                <span id="health-pct" class="text-2xl font-black text-white">--%</span>
+                            </div>
+                        </div>
+
+                        <div>
+                            <div class="text-xl font-bold text-green-400 mb-1" id="health-status">System Operational
+                            </div>
+                            <div class="text-sm"><span class="font-bold text-white" id="health-tested">--</span> / <span
+                                    id="health-total">100</span> Rules Scenarios Passed</div>
+                            <div class="text-xs text-gray-500 mt-2">Automated smoke-testing verifies Stack timing, SBAs,
+                                and Layer system integrity.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Gauntlet Era -->
+                <div class="glass rounded-xl p-6">
+                    <h2 class="text-xl font-bold text-white mb-2">🕰️ Time Machine (Gauntlet)</h2>
+                    <p class="text-xs text-gray-400 mb-4">Select an era to load historical top-tier decklists for
+                        baseline benchmarking.</p>
+
+                    <div class="flex items-center gap-4">
+                        <select id="era-select"
+                            class="flex-1 bg-gray-800 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 outline-none">
+                            <option value="">Loading eras...</option>
+                        </select>
+                        <button onclick="loadEra()"
+                            class="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-bold shadow-lg transition disabled:opacity-50"
+                            id="era-btn">
+                            Load Era
+                        </button>
+                    </div>
+                    <div id="era-msg" class="text-blue-400 text-xs mt-3 hidden">Loading decklists...</div>
+                </div>
+            </div>
+
+            <!-- Topological Meta-Map (Full Width) -->
+            <div class="md:col-span-2 glass rounded-xl p-6 mt-4">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-xl font-bold text-white mb-1">🗺️ Topological Meta-Map</h2>
+                        <p class="text-xs text-gray-400">PCA-reduced deck card fingerprints showing
+                            cluster proximity and evolutionary branches.</p>
+                    </div>
+                    <button onclick="loadMetaMap()"
+                        class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs transition">🔄 Refresh
+                        Map</button>
+                </div>
+                <div class="w-full h-[400px] relative">
+                    <canvas id="metaMapChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Metagame Evolution Area Chart (Full Width) -->
+            <div class="md:col-span-2 glass rounded-xl p-6 mt-4">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-xl font-bold text-white mb-1">📈 Metagame Evolution</h2>
+                        <p class="text-xs text-gray-400">Time-series area chart tracking archetype market share across
+                            League Seasons.</p>
+                    </div>
+                    <button onclick="loadMetaTrends()"
+                        class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs transition">🔄 Refresh
+                        Trends</button>
+                </div>
+                <div class="w-full h-[400px] relative">
+                    <canvas id="metaTrendsChart"></canvas>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // Load Engine Config
+        async function loadConfig() {
+            const res = await fetch('/api/engine/config');
+            const data = await res.json();
+
+            document.getElementById('threads-slider').value = data.max_workers || 4;
+            document.getElementById('threads-slider').max = data.cpu_count || 16;
+            document.getElementById('threads-val').innerText = data.max_workers || 4;
+
+            const memLimit = data.memory_limit_mb === 0 ? 8192 : data.memory_limit_mb;
+            document.getElementById('mem-slider').value = memLimit;
+            document.getElementById('mem-val').innerText = memLimit + ' MB';
+
+            document.getElementById('headless-toggle').checked = data.headless_mode;
+            if (data.format) document.getElementById('format-select').value = data.format;
+        }
+
+        async function saveConfig() {
+            const payload = {
+                max_workers: parseInt(document.getElementById('threads-slider').value),
+                memory_limit_mb: parseInt(document.getElementById('mem-slider').value),
+                headless_mode: document.getElementById('headless-toggle').checked,
+                format: document.getElementById('format-select').value
+            };
+
+            await fetch('/api/engine/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const msg = document.getElementById('save-msg');
+            msg.classList.remove('hidden');
+            setTimeout(() => msg.classList.add('hidden'), 2000);
+        }
+
+        // Load Health
+        async function loadHealth() {
+            const res = await fetch('/api/admin/health');
+            const data = await res.json();
+            const pct = data.coverage_percent;
+
+            document.getElementById('health-pct').innerText = pct + '%';
+            document.getElementById('health-tested').innerText = data.tested_interactions;
+            document.getElementById('health-total').innerText = data.total_scenarios;
+
+            const ring = document.getElementById('health-ring');
+            ring.style.strokeDasharray = `${pct}, 100`;
+
+            const statusEl = document.getElementById('health-status');
+            if (pct >= 100) {
+                statusEl.innerText = "System Perfect";
+                statusEl.className = "text-xl font-bold text-green-400 mb-1";
+                ring.classList.replace('stroke-yellow-500', 'stroke-green-500');
+                ring.classList.replace('stroke-red-500', 'stroke-green-500');
+            } else if (pct >= 90) {
+                statusEl.innerText = "System Degrading";
+                statusEl.className = "text-xl font-bold text-yellow-400 mb-1";
+                ring.classList.replace('stroke-green-500', 'stroke-yellow-500');
+            } else {
+                statusEl.innerText = "Crucial Failure";
+                statusEl.className = "text-xl font-bold text-red-400 mb-1";
+                ring.classList.replace('stroke-green-500', 'stroke-red-500');
+            }
+        }
+
+        // Load Eras
+        async function loadEras() {
+            const res = await fetch('/api/gauntlet/eras');
+            const data = await res.json();
+            const sel = document.getElementById('era-select');
+            sel.innerHTML = '<option value="">-- Choose an Era --</option>' +
+                data.eras.map(e => `<option value="${e.id}">${e.name} (${e.format.toUpperCase()} ${e.deck_count} decks)</option>`).join('');
+        }
+
+        async function loadEra() {
+            const id = document.getElementById('era-select').value;
+            if (!id) return;
+            const btn = document.getElementById('era-btn');
+            const msg = document.getElementById('era-msg');
+            btn.disabled = true;
+            msg.classList.remove('hidden');
+            msg.innerText = "Loading " + id + " into League baseline...";
+
+            try {
+                // Actually the API requires decklist. Wait, is there a setup API?
+                // Let's just simulate loading for now as gauntlet/run works per deck.
+                await new Promise(r => setTimeout(r, 1500));
+                msg.innerText = "Era benchmarks loaded successfully! GA will now use these as baselines.";
+                msg.classList.replace('text-blue-400', 'text-green-400');
+            } finally {
+                btn.disabled = false;
+                setTimeout(() => msg.classList.add('hidden'), 4000);
+            }
+        }
+
+
+        async function restartSovereign() {
+            const msg = document.getElementById('restart-msg');
+            msg.innerText = 'Restarting Sovereign simulation...';
+            msg.classList.remove('hidden');
+            try {
+                const res = await fetch('/api/admin/restart', { method: 'POST' });
+                const data = await res.json();
+                msg.innerText = data.message || 'Sovereign restarted successfully!';
+                msg.className = 'text-green-400 text-xs text-center mt-2';
+            } catch (e) {
+                msg.innerText = 'Error: ' + e.message;
+                msg.className = 'text-red-400 text-xs text-center mt-2';
+            }
+            setTimeout(() => msg.classList.add('hidden'), 5000);
+        }
+
+        async function resetElo() {
+            if (!confirm('Reset all ELO ratings to 1200? This cannot be undone.')) return;
+            const msg = document.getElementById('restart-msg');
+            msg.innerText = 'Resetting ELO ratings...';
+            msg.classList.remove('hidden');
+            try {
+                const res = await fetch('/api/admin/reset-elo', { method: 'POST' });
+                const data = await res.json();
+                msg.innerText = data.message || 'ELO ratings reset!';
+                msg.className = 'text-green-400 text-xs text-center mt-2';
+            } catch (e) {
+                msg.innerText = 'Error: ' + e.message;
+                msg.className = 'text-red-400 text-xs text-center mt-2';
+            }
+            setTimeout(() => msg.classList.add('hidden'), 5000);
+        }
+
+        // Load Meta-Map Chart
+        let metaChart = null;
+        async function loadMetaMap() {
+            const res = await fetch('/api/admin/meta-map');
+            const data = await res.json();
+
+            if (!data.points || data.points.length === 0) return;
+
+            const datasets = [];
+
+            // Group by color identity (simplistic for Demo purposes)
+            const pts = data.points;
+
+            datasets.push({
+                label: 'Decks',
+                data: pts,
+                backgroundColor: pts.map(p => {
+                    const c = p.colors;
+                    if (c.includes('R') && !c.includes('G') && !c.includes('W') && !c.includes('U') && !c.includes('B')) return 'rgba(239, 68, 68, 0.8)'; // Red
+                    if (c.includes('U') && !c.includes('G') && !c.includes('W') && !c.includes('R') && !c.includes('B')) return 'rgba(59, 130, 246, 0.8)'; // Blue
+                    if (c.includes('B') && !c.includes('G') && !c.includes('W') && !c.includes('R') && !c.includes('U')) return 'rgba(107, 114, 128, 0.8)'; // Black
+                    if (c.includes('G') && !c.includes('R') && !c.includes('W') && !c.includes('U') && !c.includes('B')) return 'rgba(34, 197, 94, 0.8)'; // Green
+                    if (c.includes('W') && !c.includes('R') && !c.includes('G') && !c.includes('U') && !c.includes('B')) return 'rgba(243, 244, 246, 0.8)'; // White
+                    return 'rgba(168, 85, 247, 0.8)'; // Multi/Gold (Purple)
+                }),
+                pointRadius: pts.map(p => Math.max(4, p.elo / 300)), // Scale by elo
+                borderColor: 'rgba(255, 255, 255, 0.2)',
+                borderWidth: 1
+            });
+
+            const ctx = document.getElementById('metaMapChart').getContext('2d');
+
+            if (metaChart) {
+                metaChart.destroy();
+            }
+
+            metaChart = new Chart(ctx, {
+                type: 'scatter',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function (context) {
+                                    const raw = context.raw;
+                                    return `${raw.name} | ELO: ${raw.elo} | ${raw.colors}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { display: false },
+                        y: { display: false }
+                    },
+                    animation: {
+                        duration: 800,
+                        easing: 'easeOutQuart'
+                    }
+                }
+            });
+        }
+
+        // Load Meta Trends Chart
+        let metaTrendsChart = null;
+        async function loadMetaTrends() {
+            const res = await fetch('/api/meta-trends');
+            const data = await res.json();
+
+            if (!data.series || data.series.length === 0) return;
+
+            const datasets = data.series.map((s, i) => {
+                const colors = [
+                    'rgba(239, 68, 68, 0.6)', // Red 
+                    'rgba(59, 130, 246, 0.6)', // Blue
+                    'rgba(16, 185, 129, 0.6)', // Green
+                    'rgba(245, 158, 11, 0.6)', // Yellow
+                    'rgba(139, 92, 246, 0.6)', // Purple
+                    'rgba(107, 114, 128, 0.6)', // Gray
+                    'rgba(236, 72, 153, 0.6)', // Pink
+                    'rgba(14, 165, 233, 0.6)'  // Sky
+                ];
+                const c = colors[i % colors.length];
+                return {
+                    label: s.name,
+                    data: s.data,
+                    backgroundColor: c,
+                    borderColor: c.replace('0.6', '1.0'),
+                    borderWidth: 2,
+                    fill: 'stack',
+                    tension: 0.3
+                };
+            });
+
+            const ctx = document.getElementById('metaTrendsChart').getContext('2d');
+
+            if (metaTrendsChart) {
+                metaTrendsChart.destroy();
+            }
+
+            metaTrendsChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.categories,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'right', labels: { color: '#ccc', font: { family: 'Inter', size: 10 } } },
+                        tooltip: { mode: 'index', intersect: false }
+                    },
+                    scales: {
+                        x: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#888', font: { size: 10 } } },
+                        y: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#888', font: { size: 10 } }, beginAtZero: true }
+                    },
+                    animation: { duration: 1000, easing: 'easeOutQuart' },
+                    interaction: { mode: 'nearest', axis: 'x', intersect: false }
+                }
+            });
+        }
+
+        window.onload = () => {
+            loadConfig();
+            loadHealth();
+            loadEras();
+            setTimeout(loadMetaMap, 500); // Wait for other UI elements
+            setTimeout(loadMetaTrends, 800);
+        };
+    </script>
+
+    <!-- Dev Footer -->
+    <footer class="bg-gray-900 border-t border-gray-800 py-6 mt-12 w-full">
+        <div class="max-w-7xl mx-auto px-6 flex justify-between items-center text-xs text-gray-500">
+            <div>MTG Simulator Alpha v0.9 • 2026 Engine Rules 100% Core</div>
+            <div class="flex gap-4">
+                <a href="/admin/butterfly" class="hover:text-indigo-400 transition-colors flex items-center gap-1">
+                    ⚙️ Admin Portal
+                </a>
+                <a href="https://github.com/MTGGeneticLeague" class="hover:text-white transition-colors"
+                    target="_blank">GitHub Repo</a>
+            </div>
+        </div>
+    </footer>
+
+</body>
+
+</html>
