@@ -24,10 +24,11 @@ from engine.game import Game
 from engine.player import Player
 from engine.deck import Deck
 from engine.card_builder import dict_to_card, inject_basic_lands
-from simulation.runner import SimulationRunner
+from simulation.runner import SimulationRunner, reset_error_budget, get_error_budget_status
 from agents.strategic_agent import StrategicAgent
 from optimizer.genetic import GeneticOptimizer, parse_cmc
 from league.gauntlet import Gauntlet
+from engine.errors import GameStateError
 
 # All 32 color identities for deck construction
 COLOR_COMBOS = [
@@ -112,6 +113,9 @@ class LeagueManager:
     def run_season(self, games_per_deck: int = 4) -> None:
         """Run a full season of matches across all divisions using parallel workers."""
         logger.info("--- Season %d ---", self.season_number)
+        
+        # Reset error budget for this season
+        reset_error_budget()
         
         # 1. Run Matches — parallel within each division
         total_matches = 0
@@ -202,8 +206,9 @@ class LeagueManager:
                             if winner_id is not None:
                                 total_decisive += 1
 
-                except Exception:
+                except Exception as e:
                     # Redis unavailable — run matches in-process
+                    logger.info("  Redis unavailable (%s), running in-process.", type(e).__name__)
                     for args in match_args:
                         d1_id, d2_id, d1_cards, d2_cards, _ = args
                         try:
@@ -226,6 +231,8 @@ class LeagueManager:
                             total_matches += 1
                             if winner_id is not None:
                                 total_decisive += 1
+                        except GameStateError as e:
+                            logger.info("Match game state error D%s vs D%s: %s", d1_id, d2_id, e)
                         except Exception as e:
                             logger.warning("Match error D%s vs D%s: %s", d1_id, d2_id, e)
                     
@@ -243,6 +250,14 @@ class LeagueManager:
         
         # Season summary
         wr = f"{total_decisive/total_matches*100:.0f}%" if total_matches > 0 else "N/A"
+        
+        # Log error budget status for this season
+        error_status = get_error_budget_status()
+        if error_status['total_errors'] > 0:
+            logger.info("  🐛 Error budget: %d/%d errors. Types: %s",
+                        error_status['total_errors'], error_status['threshold'],
+                        error_status['error_types'])
+        
         logger.info("  ⚔️  %d matches | %s decisive | -%d culled | +%d bred", total_matches, wr, culled, bred)
         
         self.season_number += 1
@@ -447,6 +462,9 @@ class LeagueManager:
                 
             return winner_id
                 
+        except GameStateError as e:
+            logger.info("Match game state error D%s vs D%s: %s", deck1.db_id, deck2.db_id, e)
+            return None
         except Exception as e:
             logger.exception("Match error D%s vs D%s", deck1.db_id, deck2.db_id)
             return None
@@ -727,6 +745,8 @@ class LeagueManager:
                                 log_path = self._save_match_log(boss_logs)
                                 self.update_match_result(cand['id'], boss['id'], w_id, result.turns,
                                                          game_log=result.game_log, log_path=log_path)
+                            except GameStateError as e:
+                                logger.info("Boss battle game state error: %s", e)
                             except Exception as e:
                                 logger.warning("Game error during promotion: %s", e)
                         

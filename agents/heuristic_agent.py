@@ -1497,13 +1497,90 @@ class HeuristicAgent(BaseAgent):
                     remaining_blockers.remove(b1)
                     remaining_blockers.remove(b2)
         
+        # ── LETHAL-INCOMING SURVIVAL: chump-block everything to stay alive ──
+        # After the regular blocking pass, check if unblocked damage would kill us.
+        # If so, assign remaining blockers as chump blockers (smallest first) to
+        # survive until our next turn. This is a critical competitive MTG concept:
+        # "blocks that keep you alive are always correct."
+        if remaining_blockers:
+            unblocked_damage = 0
+            unblocked_attackers = []
+            for att in sorted_attackers:
+                if att.id not in blocks:
+                    att_power = (att.power or 0) + getattr(att, 'self_pump_power', 0)
+                    if att_power > 0:
+                        unblocked_damage += att_power
+                        unblocked_attackers.append(att)
+            
+            if unblocked_damage >= player.life:
+                # We're dead if we don't chump — assign blockers to biggest threats
+                # Sort unblocked by power descending (block the biggest first)
+                unblocked_attackers.sort(key=lambda a: (a.power or 0), reverse=True)
+                # Sort remaining blockers by value ascending (sacrifice cheapest)
+                remaining_blockers.sort(key=lambda b: (b.power or 0) + (b.toughness or 0))
+                
+                damage_after_blocks = unblocked_damage
+                for att in unblocked_attackers:
+                    if not remaining_blockers:
+                        break
+                    if damage_after_blocks < player.life:
+                        break  # We've blocked enough to survive
+                    
+                    att_power = (att.power or 0) + getattr(att, 'self_pump_power', 0)
+                    
+                    # Filter to valid blockers for this attacker
+                    valid = [b for b in remaining_blockers
+                             if not (att.has_flying and not b.can_block_flyer)
+                             and not (hasattr(att, 'is_protected_from') and att.is_protected_from(b))]
+                    if not valid:
+                        continue
+                    
+                    # For menace, need 2 blockers
+                    if att.has_menace:
+                        if len(valid) >= 2:
+                            b1, b2 = valid[0], valid[1]
+                            blocks[att.id] = [b1, b2]
+                            remaining_blockers.remove(b1)
+                            remaining_blockers.remove(b2)
+                            if att.has_trample:
+                                # Trample bleeds through
+                                prevented = (b1.toughness or 0) + (b2.toughness or 0)
+                                damage_after_blocks -= min(att_power, prevented)
+                            else:
+                                damage_after_blocks -= att_power
+                        continue
+                    
+                    # Single chump block
+                    chump = valid[0]
+                    blocks[att.id] = [chump]
+                    remaining_blockers.remove(chump)
+                    if att.has_trample:
+                        prevented = min(att_power, chump.toughness or 0)
+                        damage_after_blocks -= prevented
+                    else:
+                        damage_after_blocks -= att_power
+                
+                if blocks:
+                    game.log_event(f"  → {player.name}: 🛡️ survival blocks! ({unblocked_damage} incoming vs {player.life} life)")
+        
         # ── T5: Race-aware blocking override ────────────────────────
         # If we're ahead in the damage race, DON'T block (just race)
         if blocks and not getattr(self, 'desperation_mode', False):
             my_clock, opp_clock = self._calculate_clock(game, player, opp)
             if my_clock < opp_clock and player.life > 5:
-                # We kill them first — skip blocking, take the damage
-                game.log_event(f"  → {player.name}: not blocking — racing! (T{my_clock} vs T{opp_clock})")
-                return {}
+                # Make sure we don't skip blocks when they'd be lethal
+                unblocked_damage = sum(
+                    (att.power or 0) + getattr(att, 'self_pump_power', 0)
+                    for att in sorted_attackers if att.id not in blocks
+                )
+                total_incoming = sum(
+                    (att.power or 0) + getattr(att, 'self_pump_power', 0)
+                    for att in sorted_attackers
+                )
+                if total_incoming < player.life:
+                    # Safe to not block — we survive and kill them first
+                    game.log_event(f"  → {player.name}: not blocking — racing! (T{my_clock} vs T{opp_clock})")
+                    return {}
         
         return blocks
+

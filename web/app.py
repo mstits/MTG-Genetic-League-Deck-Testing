@@ -2568,5 +2568,31 @@ async def get_card_coverage(limit: int = 100):
     }
 
 
+# ─── Engine Configuration API ────────────────────────────────────────────────
+
+from engine.engine_config import config as engine_config
+
+@app.get("/api/config")
+async def get_config():
+    """Return current engine configuration."""
+    return JSONResponse(engine_config.to_dict())
+
+@app.post("/api/config")
+async def update_config(request: Request):
+    """Update engine configuration values."""
+    try:
+        body = await request.json()
+        engine_config.update_from_dict(body)
+        return JSONResponse({"status": "ok", "config": engine_config.to_dict()})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+@app.get("/api/error-budget")
+async def get_error_budget():
+    """Return current error budget status for monitoring."""
+    from simulation.runner import get_error_budget_status
+    return JSONResponse(get_error_budget_status())
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

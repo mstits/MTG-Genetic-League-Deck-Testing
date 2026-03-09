@@ -217,6 +217,10 @@
                 class="tab-inactive px-5 py-2.5 rounded-lg text-sm font-semibold transition-all">
                 ⚔️ Match History
             </button>
+            <button onclick="switchTab('settings')" id="tab-settings"
+                class="tab-inactive px-5 py-2.5 rounded-lg text-sm font-semibold transition-all">
+                ⚙️ Settings
+            </button>
         </div>
     </div>
 
@@ -494,6 +498,123 @@
                         </tr>
                     </tbody>
                 </table>
+            </div>
+        </div>
+
+        <!-- Settings -->
+        <div id="panel-settings" class="glass rounded-2xl p-6 glow-purple hidden">
+            <h2 class="text-xl font-bold text-white mb-1">⚙️ Engine Configuration</h2>
+            <p class="text-sm text-gray-400 mb-6">Tune simulation parameters and error handling behavior</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Simulation Parameters -->
+                <div class="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
+                    <h3 class="text-sm font-bold text-indigo-400 uppercase tracking-wider mb-4">Simulation</h3>
+
+                    <div class="space-y-5">
+                        <div>
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="text-sm text-gray-300">Max Workers</label>
+                                <span id="cfg-max-workers-val" class="text-xs font-mono text-indigo-400">—</span>
+                            </div>
+                            <input type="range" id="cfg-max-workers" min="1" max="16" step="1"
+                                class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                                oninput="document.getElementById('cfg-max-workers-val').textContent=this.value">
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="text-sm text-gray-300">Max Turns</label>
+                                <span id="cfg-max-turns-val" class="text-xs font-mono text-indigo-400">—</span>
+                            </div>
+                            <input type="range" id="cfg-max-turns" min="10" max="200" step="5"
+                                class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                                oninput="document.getElementById('cfg-max-turns-val').textContent=this.value">
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="text-sm text-gray-300">Max Actions</label>
+                                <span id="cfg-max-actions-val" class="text-xs font-mono text-indigo-400">—</span>
+                            </div>
+                            <input type="range" id="cfg-max-actions" min="100" max="5000" step="100"
+                                class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                                oninput="document.getElementById('cfg-max-actions-val').textContent=this.value">
+                        </div>
+
+                        <div class="flex justify-between items-center pt-2 border-t border-gray-700">
+                            <div>
+                                <label class="text-sm text-gray-300">Headless Mode</label>
+                                <p class="text-xs text-gray-500">Max speed, minimal logging</p>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="cfg-headless" class="sr-only peer">
+                                <div
+                                    class="w-10 h-5 bg-gray-700 rounded-full peer peer-checked:bg-indigo-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-gray-300 after:rounded-full after:h-4 after:w-4 after:transition-all">
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Error Handling -->
+                <div class="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
+                    <h3 class="text-sm font-bold text-red-400 uppercase tracking-wider mb-4">Error Handling</h3>
+
+                    <div class="space-y-5">
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <label class="text-sm text-gray-300">Strict Errors</label>
+                                <p class="text-xs text-gray-500">Re-raise genuine code bugs</p>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="cfg-strict" class="sr-only peer">
+                                <div
+                                    class="w-10 h-5 bg-gray-700 rounded-full peer peer-checked:bg-red-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-gray-300 after:rounded-full after:h-4 after:w-4 after:transition-all">
+                                </div>
+                            </label>
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="text-sm text-gray-300">Error Budget Threshold</label>
+                                <span id="cfg-budget-val" class="text-xs font-mono text-red-400">—</span>
+                            </div>
+                            <input type="range" id="cfg-budget" min="1" max="100" step="1"
+                                class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-red-500"
+                                oninput="document.getElementById('cfg-budget-val').textContent=this.value">
+                        </div>
+
+                        <!-- Error Budget Status -->
+                        <div class="bg-gray-900/60 rounded-lg p-4 border border-gray-700 mt-3">
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Error Budget
+                                    Status</span>
+                                <span id="budget-status-badge"
+                                    class="text-xs px-2 py-0.5 rounded-full bg-green-900/50 text-green-400 border border-green-700/50">OK</span>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <div class="flex-1 bg-gray-700/50 rounded-full h-3 overflow-hidden">
+                                    <div id="budget-bar"
+                                        class="h-full bg-green-500 rounded-full transition-all duration-500"
+                                        style="width:0%"></div>
+                                </div>
+                                <span id="budget-count" class="text-sm font-mono text-gray-400">0/0</span>
+                            </div>
+                            <div id="budget-types" class="mt-2 text-xs text-gray-500"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Save Button -->
+            <div class="flex justify-end mt-6 gap-3 items-center">
+                <span id="save-status" class="text-sm text-green-400 opacity-0 transition-opacity duration-300">✓
+                    Saved</span>
+                <button onclick="saveConfig()"
+                    class="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg font-semibold text-sm hover:from-indigo-500 hover:to-purple-500 transition-all shadow-lg hover:shadow-indigo-500/30">
+                    💾 Save Configuration
+                </button>
             </div>
         </div>
 
@@ -1014,6 +1135,116 @@
                 document.getElementById('stats-container').innerHTML = h;
             });
         }, 60000);
+
+        // ─── Settings Tab ─────────────────────────────────────────────
+        async function loadConfig() {
+            try {
+                const resp = await fetch('/api/config');
+                const cfg = await resp.json();
+
+                const s = (id, val) => {
+                    const el = document.getElementById(id);
+                    if (el) { el.value = val; }
+                    const lbl = document.getElementById(id + '-val');
+                    if (lbl) { lbl.textContent = val; }
+                };
+
+                s('cfg-max-workers', cfg.max_workers || 4);
+                s('cfg-max-turns', cfg.max_turns || 100);
+                s('cfg-max-actions', cfg.max_actions || 1000);
+                s('cfg-budget', cfg.error_budget_threshold || 10);
+
+                const headless = document.getElementById('cfg-headless');
+                if (headless) headless.checked = !!cfg.headless_mode;
+                const strict = document.getElementById('cfg-strict');
+                if (strict) strict.checked = !!cfg.strict_errors;
+
+                loadErrorBudget();
+            } catch (e) {
+                console.error('Failed to load config:', e);
+            }
+        }
+
+        async function saveConfig() {
+            const body = {
+                max_workers: parseInt(document.getElementById('cfg-max-workers').value),
+                max_turns: parseInt(document.getElementById('cfg-max-turns').value),
+                max_actions: parseInt(document.getElementById('cfg-max-actions').value),
+                error_budget_threshold: parseInt(document.getElementById('cfg-budget').value),
+                headless_mode: document.getElementById('cfg-headless').checked,
+                strict_errors: document.getElementById('cfg-strict').checked,
+            };
+
+            try {
+                const resp = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await resp.json();
+
+                const status = document.getElementById('save-status');
+                if (data.status === 'ok') {
+                    status.textContent = '✓ Saved';
+                    status.classList.remove('text-red-400');
+                    status.classList.add('text-green-400');
+                } else {
+                    status.textContent = '✕ Error: ' + (data.error || 'Unknown');
+                    status.classList.remove('text-green-400');
+                    status.classList.add('text-red-400');
+                }
+                status.style.opacity = '1';
+                setTimeout(() => { status.style.opacity = '0'; }, 3000);
+            } catch (e) {
+                console.error('Save failed:', e);
+            }
+        }
+
+        async function loadErrorBudget() {
+            try {
+                const resp = await fetch('/api/error-budget');
+                const data = await resp.json();
+
+                const pct = data.threshold > 0 ? Math.min(100, (data.total_errors / data.threshold) * 100) : 0;
+                const bar = document.getElementById('budget-bar');
+                const count = document.getElementById('budget-count');
+                const badge = document.getElementById('budget-status-badge');
+                const types = document.getElementById('budget-types');
+
+                if (bar) {
+                    bar.style.width = pct + '%';
+                    bar.className = 'h-full rounded-full transition-all duration-500 ' +
+                        (pct >= 100 ? 'bg-red-500' : pct >= 70 ? 'bg-yellow-500' : 'bg-green-500');
+                }
+                if (count) count.textContent = data.total_errors + '/' + data.threshold;
+                if (badge) {
+                    if (data.budget_exceeded) {
+                        badge.textContent = 'EXCEEDED';
+                        badge.className = 'text-xs px-2 py-0.5 rounded-full bg-red-900/50 text-red-400 border border-red-700/50';
+                    } else if (pct >= 70) {
+                        badge.textContent = 'WARNING';
+                        badge.className = 'text-xs px-2 py-0.5 rounded-full bg-yellow-900/50 text-yellow-400 border border-yellow-700/50';
+                    } else {
+                        badge.textContent = 'OK';
+                        badge.className = 'text-xs px-2 py-0.5 rounded-full bg-green-900/50 text-green-400 border border-green-700/50';
+                    }
+                }
+                if (types && data.error_types && Object.keys(data.error_types).length > 0) {
+                    types.textContent = Object.entries(data.error_types).map(([k, v]) => `${k}: ${v}`).join(' · ');
+                } else if (types) {
+                    types.textContent = 'No errors recorded this session';
+                }
+            } catch (e) {
+                console.error('Error budget load failed:', e);
+            }
+        }
+
+        // Override switchTab to load config when settings tab opens
+        const _origSwitchTab = switchTab;
+        switchTab = function (tab) {
+            _origSwitchTab(tab);
+            if (tab === 'settings') loadConfig();
+        };
     </script>
 
     <!-- Dev Footer -->
