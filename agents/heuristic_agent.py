@@ -111,7 +111,7 @@ class HeuristicAgent(BaseAgent):
         if getattr(self, 'playstyle', None):
             return self.playstyle
         
-        # T5: Hand composition can force a role regardless of board
+        # Hand composition can force a role regardless of board state
         burn_in_hand = sum(1 for c in player.hand.cards if c.is_burn)
         counters_in_hand = sum(1 for c in player.hand.cards if c.is_counter)
         
@@ -802,7 +802,7 @@ class HeuristicAgent(BaseAgent):
                     if c.landfall_effect: score += 1
                     if c.has_undying or c.has_persist: score += 1
                     
-                    # T3: Artifact synergy — boost artifact creatures when
+                    # Artifact synergy — boost artifact creatures when
                     # deck has artifact payoffs on board or in hand
                     if 'Artifact' in (c.type_line or ''):
                         artifact_count = self._count_artifacts(game, player)

@@ -1,15 +1,16 @@
-"""LeagueManager — Genetic evolution engine for MTG deck populations.
+"""LeagueManager — Evolutionary league engine for MTG deck populations.
 
-Runs the evolutionary cycle:
-    1. Match  — Pairs decks for Bo3 matches (parallel via multiprocessing)
-    2. Rate   — Updates ELO ratings based on match outcomes
-    3. Select — Retires bottom 20% of decks each season
-    4. Breed  — Top decks crossbreed: combine card pools of two winners
-    5. Mutate — Random card additions/removals/swaps (5% mutation rate)
+Runs the evolutionary cycle each season:
+    1. Match  — Pairs decks for Bo3 matches (in-process or Redis-distributed)
+    2. Rate   — ELO updates with K-factor decay (K=40→24→12 by experience)
+    3. Cull   — Retires bottom 5% of active decks (never culls Boss decks)
+    4. Breed  — Top champions crossbreed with mutation (3% offspring rate)
+    5. Wild   — Random new decks injected for genetic diversity (~1%)
 
 The league maintains a target population of ~1000 active decks across
-all 32 color combinations (including colorless, 3/4/5-color), with boss
-decks from the Gauntlet serving as fixed benchmarks.
+all 32 color combinations (including colorless, 3/4/5-color), with Boss
+decks from the Gauntlet serving as fixed benchmarks. Promotion to Mythic
+requires beating a Boss in a best-of-three.
 """
 
 import json

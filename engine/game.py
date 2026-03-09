@@ -444,7 +444,7 @@ class Game:
             p1_board = ', '.join(f"{c.name} {c.power}/{c.toughness}" for c in p1_creatures) or 'empty'
             self.log_event(f"    Board: {p0.name} [{p0_board}] | {p1.name} [{p1_board}]")
         
-        # T11: Log hand contents for both players (post-game replay visibility)
+        # Log hand contents for both players (visible in post-game replay)
         p0_hand = ', '.join(c.name for c in p0.hand.cards[:10]) or 'empty'
         p1_hand = ', '.join(c.name for c in p1.hand.cards[:10]) or 'empty'
         self.log_event(f"    [HAND {p0.name}: {p0_hand}]")

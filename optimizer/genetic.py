@@ -4,8 +4,10 @@ Creates decks by evolving a population through selection, crossover, and mutatio
 Color-aware: respects mana base construction, color identity filtering, and
 dual-land detection for multi-color decks.
 
-Fitness is evaluated by simulating games against reference opponents —
-lower average kills (fewer turns to win) = higher fitness score.
+Fitness is multi-dimensional:
+    - PvP win rate (50%) + novelty (50%) = base score
+    - Speed bonus, life cushion, curve quality, composition
+    - Matchup spread: extra points for beating top-ELO opponents
 """
 
 import random
@@ -493,7 +495,7 @@ class GeneticOptimizer:
             
         win_rate = wins / games
         
-        # Evolutionary Novelty Search (Phase 7)
+        # Novelty-weighted fitness: avoids convergence to a single archetype
         try:
             from data.vector_db import get_novelty_score
             card_map = {}
@@ -630,12 +632,12 @@ class GeneticOptimizer:
             print(f"  Gen {gen+1}/{self.generations} | Best: {best_score:.1f}")
             score_history.append(best_score)
             
-            # Nash Equilibrium Convergence Check (Phase 3)
+            # Convergence check: halt when population stabilizes
             if len(score_history) >= 3:
                 recent = score_history[-3:]
                 variance = max(recent) - min(recent)
                 if variance < 0.2 and gen >= 2:
-                    print(f"  🌟 [Meta-Equilibrium] Nash Equilibrium Converged against Feb 9, 2026 B&R List at Gen {gen+1} (Var: {variance:.3f})")
+                    print(f"  🌟 Population converged at Gen {gen+1} (variance: {variance:.3f})")
             
             survivors = [x[1] for x in scores[:max(2, self.population_size//3)]]
             

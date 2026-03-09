@@ -1,7 +1,12 @@
-"""Bo3 — Best-of-Three match system with sideboarding.
+"""Bo3 — Best-of-Three match system with sideboarding and card tracking.
 
 Plays a best-of-3 match between two decks. Between games 1→2 and 2→3,
 each player can swap cards between their maindeck and sideboard.
+
+After each game, the engine extracts cards the opponent played from the
+game log. These 'cards_seen' are passed to the classifier and sideboard
+logic so that post-board decisions are data-driven (e.g., board in
+graveyard hate after seeing recursion, or lifegain after seeing burn).
 
 Usage:
     from engine.bo3 import Bo3Match
@@ -70,7 +75,7 @@ class Bo3Match:
                 break  # Match decided
             
             # Create fresh players for each game
-            # T2: In games 2-3, loser of previous game chooses play/draw
+            # In games 2-3, loser of previous game chooses play/draw
             on_play_first = True  # Default: deck_a goes first
             if game_num > 1 and self.games_played:
                 prev = self.games_played[-1]

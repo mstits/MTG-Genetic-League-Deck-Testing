@@ -120,7 +120,7 @@ class FlexTester:
             total = w + l + d
             win_rate = (w / total) * 100 if total > 0 else 0
             
-            # T12: Calculate Wilson score confidence interval (95%)
+            # Wilson score confidence interval (95%)
             import math
             n = total
             if n > 0:

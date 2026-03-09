@@ -1,18 +1,29 @@
 """Web Dashboard — FastAPI application serving the league UI and REST API.
 
-Endpoints:
-    GET  /                    — Main dashboard (Jinja2 template)
-    GET  /api/leaderboard     — Ranked deck listings with ELO and division
-    GET  /api/top-cards       — Cards with highest win rates
-    GET  /api/meta            — Color distribution and archetype breakdown
-    GET  /api/match-history   — Recent match results with pagination
-    GET  /api/matchups        — Head-to-head matchup matrix
-    GET  /api/stats           — League-wide statistics
-    GET  /api/cards/search    — Card name autocomplete for deck builder
-    POST /api/test-deck       — Test a user decklist against top league decks
+Pages:
+    GET  /                      — Main dashboard with live stats
+    GET  /deck/{id}             — Deck detail with matchup spread
+    GET  /deck/{id}/lineage     — Evolutionary lineage tree (Mermaid)
+    GET  /match/{id}/replay     — Interactive 2D match replay
+    GET  /admin                 — Admin portal (engine config, health)
 
-The dashboard uses Tailwind CSS for styling and vanilla JavaScript for
-interactivity (tab switching, deck builder, card search autocomplete).
+Core API:
+    GET  /api/leaderboard       — Ranked decks by ELO and division
+    GET  /api/top-cards         — Cards with highest win rates
+    GET  /api/meta              — Color/archetype breakdown
+    GET  /api/meta-trends       — Historical popularity + win rates by season
+    GET  /api/matchup-matrix    — Color vs color win-rate matrix
+    GET  /api/export/{deck_id}  — Deck export (Arena/MTGO) with sideboard
+    GET  /api/card-coverage     — Card pool play rates across active decks
+
+Analysis API:
+    POST /api/test-deck         — Test decklist against top league opponents
+    POST /api/mulligan-eval     — Evaluate opening hand with Mulligan AI
+    POST /api/salt-score        — Commander salt score and bracket
+    POST /api/gauntlet/run      — Test vs historical era Top 8
+
+Streaming:
+    WS   /ws/elo                — Real-time ELO update stream
 """
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -683,7 +694,7 @@ async def view_deck(request: Request, deck_id: int):
         ''', (deck_id, deck_id))
         matches = [dict(row) for row in cursor.fetchall()]
         
-        # T10: Matchup Spread — win% by opponent archetype
+        # Matchup Spread — win% by opponent archetype
         matchup_spread = []
         try:
             cursor.execute('''
