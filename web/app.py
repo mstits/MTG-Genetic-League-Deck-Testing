@@ -2347,6 +2347,51 @@ async def api_matchup_matrix():
     return JSONResponse({"archetypes": archetypes, "matrix": matrix})
 
 
+@app.get("/api/turn-distribution", response_class=JSONResponse)
+async def api_turn_distribution():
+    """Histogram of game lengths (turns) across all matches."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT turns, COUNT(*) as count
+            FROM matches
+            WHERE turns IS NOT NULL AND turns > 0
+            GROUP BY turns
+            ORDER BY turns ASC
+        ''')
+        rows = [dict(r) for r in cursor.fetchall()]
+    
+    # Bucket into ranges for cleaner display
+    buckets = {}
+    for r in rows:
+        t = r['turns']
+        if t <= 5:
+            key = "1-5"
+        elif t <= 8:
+            key = "6-8"
+        elif t <= 11:
+            key = "9-11"
+        elif t <= 14:
+            key = "12-14"
+        elif t <= 18:
+            key = "15-18"
+        else:
+            key = "19+"
+        buckets[key] = buckets.get(key, 0) + r['count']
+    
+    # Maintain order
+    ordered_keys = ["1-5", "6-8", "9-11", "12-14", "15-18", "19+"]
+    distribution = [{"range": k, "count": buckets.get(k, 0)} for k in ordered_keys]
+    total = sum(b['count'] for b in distribution)
+    avg_turns = sum(r['turns'] * r['count'] for r in rows) / max(total, 1) if rows else 0
+    
+    return JSONResponse({
+        "distribution": distribution,
+        "total_games": total,
+        "avg_turns": round(avg_turns, 1)
+    })
+
+
 @app.get("/api/meta-trends", response_class=JSONResponse)
 async def api_meta_trends():
     """Retrieve historical archetype popularity AND win rates aggregated by season."""

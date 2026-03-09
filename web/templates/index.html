@@ -508,6 +508,43 @@
                     <p class="text-gray-500 text-center p-4 text-sm">Loading heatmap...</p>
                 </div>
             </div>
+
+            <!-- Turn Distribution -->
+            <div class="mt-6 pt-6 border-t border-gray-700/50">
+                <h3 class="text-lg font-bold text-white mb-2">📊 Game Length Distribution</h3>
+                <p class="text-xs text-gray-500 mb-4">How many turns do games typically last?</p>
+                <div id="turn-dist-container">
+                    <p class="text-gray-500 text-center p-4 text-sm">Loading...</p>
+                </div>
+            </div>
+
+            <!-- Deck Comparison -->
+            <div class="mt-6 pt-6 border-t border-gray-700/50">
+                <h3 class="text-lg font-bold text-white mb-2">🔄 Deck Comparison</h3>
+                <p class="text-xs text-gray-500 mb-3">Compare two league decks side-by-side.</p>
+                <div class="flex gap-3 items-end mb-4">
+                    <div class="flex-1">
+                        <label class="text-xs text-gray-400 mb-1 block">Deck A</label>
+                        <select id="compare-deck1"
+                            class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200">
+                            <option value="">Select deck...</option>
+                        </select>
+                    </div>
+                    <div class="text-gray-600 text-lg pb-2">vs</div>
+                    <div class="flex-1">
+                        <label class="text-xs text-gray-400 mb-1 block">Deck B</label>
+                        <select id="compare-deck2"
+                            class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200">
+                            <option value="">Select deck...</option>
+                        </select>
+                    </div>
+                    <button onclick="runComparison()" id="compare-btn"
+                        class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition-colors whitespace-nowrap">
+                        Compare
+                    </button>
+                </div>
+                <div id="compare-results" class="hidden"></div>
+            </div>
         </div>
 
         <!-- Match History -->
@@ -692,7 +729,11 @@
                 .then(html => { if (target) target.innerHTML = html; })
                 .catch(e => { if (target) target.innerHTML = '<tr><td colspan="10" class="p-6 text-center text-gray-500">Failed to load data</td></tr>'; });
             // Auto-load heatmap when switching to meta tab
-            if (tab === 'meta') loadHeatmap();
+            if (tab === 'meta') {
+                loadHeatmap();
+                loadTurnDistribution();
+                loadCompareDropdowns();
+            }
         }
 
         async function loadHeatmap() {
@@ -730,6 +771,107 @@
             } catch (e) {
                 container.innerHTML = '<p class="text-red-400 text-center text-sm py-4">Error loading heatmap.</p>';
             }
+        }
+
+        async function loadTurnDistribution() {
+            const container = document.getElementById('turn-dist-container');
+            if (!container) return;
+            try {
+                const resp = await fetch('/api/turn-distribution');
+                const data = await resp.json();
+                if (!data.distribution || data.total_games === 0) {
+                    container.innerHTML = '<p class="text-gray-500 text-center text-sm py-4">No game data yet.</p>';
+                    return;
+                }
+                const maxCount = Math.max(...data.distribution.map(d => d.count));
+                let html = `<div class="text-sm text-gray-300 mb-3">Average game length: <span class="font-bold text-white">${data.avg_turns} turns</span> <span class="text-gray-500">(${data.total_games} games)</span></div>`;
+                html += '<div class="flex items-end gap-2 h-24">';
+                const colors = ['#818cf8', '#6366f1', '#4f46e5', '#4338ca', '#3730a3', '#312e81'];
+                data.distribution.forEach((d, i) => {
+                    const pct = d.count / maxCount * 100;
+                    const gamePct = (d.count / data.total_games * 100).toFixed(1);
+                    html += `<div class="flex-1 flex flex-col items-center">
+                        <div class="text-[10px] text-gray-400 mb-1">${gamePct}%</div>
+                        <div class="w-full rounded-t" style="height:${Math.max(pct, 3)}%;background:${colors[i]}" title="${d.count} games (${gamePct}%)"></div>
+                        <div class="text-[10px] text-gray-500 mt-1 font-mono">${d.range}</div>
+                    </div>`;
+                });
+                html += '</div>';
+                container.innerHTML = html;
+            } catch (e) {
+                container.innerHTML = '<p class="text-red-400 text-center text-sm py-4">Error loading turn data.</p>';
+            }
+        }
+
+        let compareDecksLoaded = false;
+        async function loadCompareDropdowns() {
+            if (compareDecksLoaded) return;
+            try {
+                const resp = await fetch('/api/leaderboard?format=json&limit=50');
+                const decks = await resp.json();
+                const sel1 = document.getElementById('compare-deck1');
+                const sel2 = document.getElementById('compare-deck2');
+                decks.forEach(d => {
+                    const opt = `<option value="${d.id}">${d.name} (${Math.round(d.elo)} Elo)</option>`;
+                    sel1.insertAdjacentHTML('beforeend', opt);
+                    sel2.insertAdjacentHTML('beforeend', opt);
+                });
+                compareDecksLoaded = true;
+            } catch (e) { }
+        }
+
+        async function runComparison() {
+            const d1 = document.getElementById('compare-deck1').value;
+            const d2 = document.getElementById('compare-deck2').value;
+            const results = document.getElementById('compare-results');
+            if (!d1 || !d2) { results.innerHTML = '<p class="text-yellow-400 text-sm py-2">Select two decks to compare.</p>'; results.classList.remove('hidden'); return; }
+            if (d1 === d2) { results.innerHTML = '<p class="text-yellow-400 text-sm py-2">Select two different decks.</p>'; results.classList.remove('hidden'); return; }
+
+            const btn = document.getElementById('compare-btn');
+            btn.disabled = true; btn.textContent = '⏳';
+            try {
+                const resp = await fetch(`/api/compare?deck1_id=${d1}&deck2_id=${d2}`);
+                const data = await resp.json();
+
+                let html = `<div class="grid grid-cols-2 gap-4 mb-4">
+                    <div class="bg-gray-800/80 rounded-xl border border-gray-700 p-3">
+                        <a href="/deck/${data.deck1.id}" class="font-bold text-blue-400 hover:underline">${data.deck1.name}</a>
+                        <div class="text-xs text-gray-400 mt-1">${data.deck1.archetype || 'Unknown'} · ${data.deck1.elo} Elo · ${data.deck1.wins}W-${data.deck1.losses}L</div>
+                    </div>
+                    <div class="bg-gray-800/80 rounded-xl border border-gray-700 p-3">
+                        <a href="/deck/${data.deck2.id}" class="font-bold text-purple-400 hover:underline">${data.deck2.name}</a>
+                        <div class="text-xs text-gray-400 mt-1">${data.deck2.archetype || 'Unknown'} · ${data.deck2.elo} Elo · ${data.deck2.wins}W-${data.deck2.losses}L</div>
+                    </div>
+                </div>`;
+                html += `<div class="text-sm text-gray-400 mb-3">Card overlap: <span class="font-bold text-white">${data.overlap_pct}%</span> (${data.shared.length} shared cards)</div>`;
+
+                // Shared cards
+                if (data.shared.length > 0) {
+                    html += '<div class="mb-3"><div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Shared Cards</div><div class="flex flex-wrap gap-1">';
+                    data.shared.forEach(c => {
+                        const diff = c.count1 !== c.count2 ? ` <span class="text-gray-500">(${c.count1}/${c.count2})</span>` : '';
+                        html += `<span class="text-xs bg-gray-700/50 text-gray-300 px-2 py-0.5 rounded">${c.name}${diff}</span>`;
+                    });
+                    html += '</div></div>';
+                }
+
+                // Unique cards
+                const renderUnique = (cards, label, color) => {
+                    if (cards.length === 0) return '';
+                    let h = `<div class="mb-2"><div class="text-xs text-gray-500 uppercase tracking-wider mb-1">${label}</div><div class="flex flex-wrap gap-1">`;
+                    cards.forEach(c => { h += `<span class="text-xs ${color} px-2 py-0.5 rounded">${c.count}x ${c.name}</span>`; });
+                    return h + '</div></div>';
+                };
+                html += renderUnique(data.only_deck1, `Only in ${data.deck1.name}`, 'bg-blue-900/30 text-blue-400');
+                html += renderUnique(data.only_deck2, `Only in ${data.deck2.name}`, 'bg-purple-900/30 text-purple-400');
+
+                results.innerHTML = html;
+                results.classList.remove('hidden');
+            } catch (e) {
+                results.innerHTML = '<p class="text-red-400 text-sm py-2">Error comparing decks.</p>';
+                results.classList.remove('hidden');
+            }
+            btn.disabled = false; btn.textContent = 'Compare';
         }
 
         // ─── Deck Builder State ─────────────────────────────────────

@@ -169,6 +169,26 @@
                             </div>
                         </div>
                     </div>
+                    {% set play_w = deck.play_wins or 0 %}
+                    {% set draw_w = deck.draw_wins or 0 %}
+                    {% if play_w + draw_w > 0 %}
+                    <div class="flex gap-4 mt-2">
+                        <div>
+                            <div class="text-xs text-gray-400 uppercase">🎯 On Play</div>
+                            <div class="text-lg font-bold text-emerald-400">{{ play_w }}W
+                                <span class="text-xs text-gray-500">({{ "%.0f"|format(play_w / (play_w + draw_w) * 100)
+                                    }}%)</span>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-gray-400 uppercase">🃏 On Draw</div>
+                            <div class="text-lg font-bold text-sky-400">{{ draw_w }}W
+                                <span class="text-xs text-gray-500">({{ "%.0f"|format(draw_w / (play_w + draw_w) * 100)
+                                    }}%)</span>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
                     <div class="text-xs text-gray-500 italic">Win% = Wins / (Wins+Losses) — draws excluded</div>
                     <div>
                         <div class="text-xs text-gray-400 uppercase tracking-wider">Colors</div>
