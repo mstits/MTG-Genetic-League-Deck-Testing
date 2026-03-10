@@ -38,11 +38,11 @@ class StatsCollector:
     def __init__(self):
         self.results: List[GameResult] = []
 
-    def add_result(self, result: GameResult):
+    def add_result(self, result: GameResult) -> None:
         """Add a game result to the collection."""
         self.results.append(result)
 
-    def print_summary(self):
+    def print_summary(self) -> None:
         """Print win rate and average turn count across all collected results."""
         total_games = len(self.results)
         if total_games == 0:

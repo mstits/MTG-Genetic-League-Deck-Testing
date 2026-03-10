@@ -529,7 +529,7 @@ class LeagueManager:
             cursor.execute('SELECT wins + losses + draws as total_games FROM decks WHERE id = %s', (id2,))
             d2_games = cursor.fetchone()['total_games']
             
-            def _get_k_factor(total_games):
+            def _get_k_factor(total_games) -> int:
                 """K-factor decay: K=40 (new), K=24 (established), K=12 (veteran)."""
                 if total_games < 10:
                     return 40    # New decks — fast rating discovery

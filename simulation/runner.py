@@ -232,7 +232,7 @@ class SimulationRunner:
             mulligan_counts=getattr(self.game, 'mulligan_counts', {})
         )
 
-    def _mercy_rule_winner(self):
+    def _mercy_rule_winner(self) -> 'Player | None':
         """Determine winner by board advantage when game hits a safety limit.
         
         T8: Improved scoring to be fair to all archetypes:
@@ -244,7 +244,7 @@ class SimulationRunner:
         """
         p1, p2 = self.game.players
         
-        def score(player):
+        def score(player) -> float:
             """Calculate heuristic strength of a player's board state to evaluate tied games."""
             creatures = [c for c in self.game.battlefield.cards 
                         if c.controller == player and c.is_creature]
