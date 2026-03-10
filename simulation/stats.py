@@ -7,6 +7,9 @@ multiple games (win rates, average turns).
 
 from dataclasses import dataclass, field
 from typing import Optional, List
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -43,7 +46,7 @@ class StatsCollector:
         """Print win rate and average turn count across all collected results."""
         total_games = len(self.results)
         if total_games == 0:
-            print("No games run.")
+            logger.info("No games run.")
             return
 
         wins = {}
@@ -54,7 +57,7 @@ class StatsCollector:
             wins[winner] = wins.get(winner, 0) + 1
             total_turns += res.turns
 
-        print(f"--- Simulation Summary ({total_games} games) ---")
+        logger.info("--- Simulation Summary (%d games) ---", total_games)
         for winner, count in wins.items():
-            print(f"{winner}: {count} ({count/total_games*100:.1f}%)")
-        print(f"Average Turns: {total_turns/total_games:.2f}")
+            logger.info("%s: %d (%.1f%%)", winner, count, count/total_games*100)
+        logger.info("Average Turns: %.2f", total_turns/total_games)

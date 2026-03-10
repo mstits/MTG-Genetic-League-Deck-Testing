@@ -9,6 +9,9 @@ import json
 from datetime import datetime
 from engine.engine_config import config as engine_config
 import multiprocessing as mp
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Global variable for worker processes to cache the card pool
 GLOBAL_CARD_POOL = None
@@ -242,7 +245,7 @@ def run_matches_parallel(match_args: List, num_workers: int = None) -> List[Dict
         return [r for r in results if r is not None]
     except Exception as e:
         # Fallback to sequential
-        print(f"  ⚠️ Parallel exec failed, falling back to sequential: {e}")
+        logger.warning("Parallel exec failed, falling back to sequential: %s", e)
         return [r for r in [_run_single_match(a) for a in match_args] if r is not None]
 
 
@@ -293,12 +296,12 @@ def seed_decks_parallel(color_combos_with_counts: List[Tuple[str, int]], all_car
         for i in range(count):
             args_list.append((colors, i, all_cards))
     
-    print(f"  Seeding {len(args_list)} decks across {num_workers} workers...")
+    logger.info("Seeding %d decks across %d workers...", len(args_list), num_workers)
     
     try:
         with mp.Pool(processes=num_workers, initializer=_apply_memory_limit) as pool:
             results = pool.map(seed_deck_parallel, args_list, chunksize=4)
         return [r for r in results if r is not None]
     except Exception as e:
-        print(f"  ⚠️ Parallel seed failed, falling back: {e}")
+        logger.warning("Parallel seed failed, falling back: %s", e)
         return [r for r in [seed_deck_parallel(a) for a in args_list] if r is not None]
