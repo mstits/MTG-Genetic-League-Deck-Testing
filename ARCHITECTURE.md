@@ -39,19 +39,19 @@ MTG Deck Testing is a simulated Magic: The Gathering league that evolves decks t
 │   └── genetic.py          Mutation, crossover, fitness, elitism
 │
 ├── web/               FastAPI web application
-│   ├── app.py              Pure wiring (84 lines — mounts routes)
+│   ├── app.py              Pure wiring (85 lines — mounts routes)
 │   ├── cache.py            Module-level card pool cache
 │   └── routes/
 │       ├── views.py         HTML template rendering
 │       ├── decks.py         Deck CRUD + card search API
 │       ├── simulation.py    Deck testing, flex optimization, mana calc
-│       ├── league_routes.py League status, season, and matchup APIs
-│       └── admin_routes.py  Admin portal and crash reports
+│       ├── meta.py          Metagame analytics, trends, matchup matrix
+│       └── admin.py         Admin portal and crash reports
 │
 ├── data/              Database and card data
 │   └── db.py              PostgreSQL connection pool + queries
 │
-└── tests/             pytest test suite (358+ tests)
+└── tests/             pytest test suite (462+ tests)
 ```
 
 ## Data Flow

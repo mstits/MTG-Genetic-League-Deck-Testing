@@ -10,7 +10,7 @@ The MTG Genetic League evolves decks through natural selection — populations o
 
 | For MTG Players | For Engineers |
 | --- | --- |
-| Test your deck against evolved meta opponents | Full MTG rules engine with 348+ automated tests |
+| Test your deck against evolved meta opponents | Full MTG rules engine with 462+ automated tests |
 | View matchup spread, win rates, and metagame trends | Genetic algorithm with novelty-search fitness |
 | Export decklists to Arena/MTGO format with sideboard | Distributed simulation via Redis + PostgreSQL |
 | Analyze opening hands with Mulligan AI | Real-time ELO streaming via WebSocket |
@@ -149,7 +149,7 @@ web/                 Dashboard and API
 data/                Storage layer
 └── db.py            PostgreSQL/SQLite dual-backend with auto-detection
 
-tests/               348+ automated tests
+tests/               462+ automated tests
 ├── test_engine.py   Core rules: lands, combat, stack, SBAs
 ├── test_tier2-7.py  Mechanics: auras, equipment, flashback, vehicles...
 ├── test_api.py      All web API endpoints (28 tests)
@@ -217,7 +217,7 @@ Role detection (aggro/midrange/control) adjusts every decision contextually.
 | `/deck/{id}` | GET | Deck detail page with stats and lineage |
 | `/deck/{id}/lineage` | GET | Mermaid-based evolutionary tree visualization |
 | `/match/{id}/replay` | GET | Interactive 2D match replay |
-| `/ws/elo` | WS | Real-time ELO update stream |
+| `/ws/elo-stream` | WS | Real-time ELO update stream |
 
 ---
 
@@ -234,7 +234,7 @@ python -m pytest tests/test_tier4.py -v  # Planeswalker tests
 python -m pytest tests/ --cov=engine --cov-report=term-missing
 ```
 
-### Current: 348 passed, 0 failed, 1 skipped
+### Current: 462 passed, 0 failed, 1 skipped
 
 Test tiers:
 
