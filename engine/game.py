@@ -1569,9 +1569,8 @@ class Game:
                 pc.locked_cost += pc.card.offspring_cost
             elif action['type'] == 'choose_emerge':
                 pc.emerge_sacrifice = action['target']
-                from engine.player import Player as _PEm
-                sac_cmc = _PEm._parse_cmc(action['target'].cost) if action['target'].cost else 0
-                emerge_cmc = _PEm._parse_cmc(pc.card.emerge_cost) if pc.card.emerge_cost else 0
+                sac_cmc = Player._parse_cmc(action['target'].cost) if action['target'].cost else 0
+                emerge_cmc = Player._parse_cmc(pc.card.emerge_cost) if pc.card.emerge_cost else 0
                 reduced = max(0, emerge_cmc - sac_cmc)
                 pc.locked_cost = "{" + str(reduced) + "}"
             elif action['type'] == 'choose_sacrifice':
@@ -1692,8 +1691,7 @@ class Game:
             # Cascade (Rule 702.84): exile cards until finding lower CMC, cast it free
             if getattr(card, 'has_cascade', False):
                 def make_cascade_trigger(cascade_card):
-                    from engine.player import Player as _PCas
-                    cascade_cmc = _PCas._parse_cmc(cascade_card.cost) if cascade_card.cost else 0
+                    cascade_cmc = Player._parse_cmc(cascade_card.cost) if cascade_card.cost else 0
                     def cascade_effect(game, source):
                         game._do_cascade(source.controller, cascade_cmc)
                     return cascade_effect
@@ -2518,8 +2516,7 @@ class Game:
         else:
             creature.counters['+1/+1'] = creature.counters.get('+1/+1', 0) + 1
             # Heuristic: keep the card if it's good, discard if low value
-            from engine.player import Player as _P
-            cmc = _P._parse_cmc(top.cost) if top.cost else 0
+            cmc = Player._parse_cmc(top.cost) if top.cost else 0
             if cmc <= 2 or top.is_removal:
                 player.library.cards.insert(0, top)  # Keep on top
                 self.log_event(f"  Explore: {creature.name} reveals {top.name} (+1/+1 counter, keep on top)")
@@ -2589,7 +2586,6 @@ class Game:
 
     def _do_cascade(self, player, source_cmc: int):
         """Cascade: exile cards from library until finding one with lower CMC, cast it free."""
-        from engine.player import Player as _P
         exiled = []
         found = None
         
@@ -2600,7 +2596,7 @@ class Game:
             exiled.append(card)
             
             if not card.is_land and card.cost:
-                card_cmc = _P._parse_cmc(card.cost)
+                card_cmc = Player._parse_cmc(card.cost)
                 if card_cmc < source_cmc:
                     found = card
                     exiled.remove(card)
