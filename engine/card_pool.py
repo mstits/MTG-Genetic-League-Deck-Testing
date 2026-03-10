@@ -10,6 +10,7 @@ Usage:
 """
 
 import json
+import logging
 import os
 from typing import List, Optional, Dict
 from engine.card import Card
@@ -71,7 +72,6 @@ def load_card_pool(format_name: str = 'standard', data_dir: str = None) -> List[
             pass
     
     if skipped_backface:
-        import logging
         logging.getLogger(__name__).info(
             f"Filtered {skipped_backface} back-face/meld creatures from card pool"
         )

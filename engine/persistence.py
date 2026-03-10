@@ -40,7 +40,6 @@ class SovereignDB:
     def _connect_sqlite(self):
         """SQLite fallback for local development without PostgreSQL."""
         import sqlite3
-        import os
         db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'sovereign.db')
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
         try:
@@ -158,7 +157,6 @@ class SovereignDB:
     def record_deck_mutation(self, generation_id: int, deck_hash: str, diff: dict):
         if not self._connected: return
         if self._backend == 'sqlite':
-            import json
             cur = self.conn.cursor()
             cur.execute(
                 "INSERT INTO deck_mutations (generation_id, deck_hash, mutation_diff) VALUES (?, ?, ?)",

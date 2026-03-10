@@ -5,6 +5,7 @@ to discover the mathematically optimal 60-card configuration against the Gauntle
 """
 
 import itertools
+import math
 from collections import Counter
 from engine.deck import Deck
 from engine.player import Player
@@ -121,7 +122,6 @@ class FlexTester:
             win_rate = (w / total) * 100 if total > 0 else 0
             
             # Wilson score confidence interval (95%)
-            import math
             n = total
             if n > 0:
                 p_hat = w / n

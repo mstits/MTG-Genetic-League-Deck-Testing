@@ -7,6 +7,7 @@ full game-state dumps for debugging failures and generating reports.
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any
 import json
+import os
 import time
 
 
@@ -125,7 +126,6 @@ class FidelityReport:
 
     def save_report(self, path: str = "data/fidelity_report.json"):
         """Save report to disk."""
-        import os
         os.makedirs(os.path.dirname(path) if os.path.dirname(path) else '.', exist_ok=True)
         with open(path, 'w') as fh:
             fh.write(self.to_json())

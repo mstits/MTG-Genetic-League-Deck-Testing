@@ -5,6 +5,7 @@ forces layering conflicts (Rule 613), verifies SBA invariants,
 and applies Fuzzing mechanics (Chaos Mode) for stress-testing.
 """
 
+import copy
 import os
 import json
 import random
@@ -128,7 +129,6 @@ def chaos_mode(g: Game, rng: random.Random):
     p2 = g.players[1]
     for c in chosen:
         # Clone before adding so we get unique instances
-        import copy
         cc = copy.deepcopy(c)
         cc.controller = p2
         g.battlefield.add(cc)

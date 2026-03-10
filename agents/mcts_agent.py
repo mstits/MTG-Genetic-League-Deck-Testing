@@ -5,6 +5,7 @@ truncated rollouts using the HeuristicAgent to simulate 2-3 turns ahead before
 falling back on a board-state/life-differential heuristic evaluation.
 """
 
+import itertools
 import math
 import random
 from typing import Dict, List, Any
@@ -42,7 +43,6 @@ class MCTSAgent(BaseAgent):
 
     def _expand_macro_actions(self, game, player, actions):
         """Converts generic macro actions (attackers, blockers) into concrete options for the tree search."""
-        import itertools
         concrete = []
         opp = game.players[(game.players.index(player) + 1) % 2]
         for a in actions:
