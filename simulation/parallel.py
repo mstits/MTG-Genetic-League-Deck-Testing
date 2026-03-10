@@ -62,23 +62,9 @@ def run_match_task(d1_id, d2_id, d1_cards, d2_cards, season_number):
         from agents.heuristic_agent import HeuristicAgent
         from data.db import update_card_stats, get_db_connection
         from agents.sideboard_agent import SideboardAgent
+        from engine.deck_builder_util import build_deck
         import copy
 
-        def build_deck(card_list, cp):
-            """Construct a Deck object from a card dictionary using the provided card pool."""
-            inject_basic_lands(cp)
-            deck = Deck()
-            if isinstance(card_list, list):
-                counts = {}
-                for n in card_list: counts[n] = counts.get(n, 0) + 1
-                card_list = counts
-            for name, count in card_list.items():
-                card_data = cp.get(name)
-                if card_data:
-                    card_obj = dict_to_card(card_data)
-                    deck.add_card(card_obj, count)
-            return deck
-        
         deck1 = build_deck(d1_cards, card_pool)
         deck2 = build_deck(d2_cards, card_pool)
         
@@ -212,8 +198,7 @@ def run_match_task(d1_id, d2_id, d1_cards, d2_cards, season_number):
         return d1_id, d2_id, winner_id
         
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Match task failed for D%s vs D%s", d1_id, d2_id)
         return None
 
 

@@ -113,22 +113,9 @@ async def test_deck(request: Request):
         from engine.player import Player
         from simulation.runner import SimulationRunner
         from agents.heuristic_agent import HeuristicAgent
+        from engine.deck_builder_util import build_deck as make_deck
 
-        def make_deck(card_dict):
-            """Build a Deck object from a card_name->count dict."""
-            deck = Deck()
-            for name, count in card_dict.items():
-                try:
-                    data = card_pool.get(name)
-                    if data:
-                        card = dict_to_card(data)
-                        deck.add_card(card, count)
-                except Exception as e:
-                    logger.warning("Skipping corrupt card '%s': %s", name, e)
-                    traceback.print_exc()
-            return deck
-
-        user_deck = make_deck(valid)
+        user_deck = make_deck(valid, card_pool)
 
         # Get opponents — either a specific deck or top 10 by ELO
         opponent_id = body.get('opponent_id')
@@ -161,12 +148,12 @@ async def test_deck(request: Request):
                     c = {}
                     for n in opp_cards: c[n] = c.get(n, 0) + 1
                     opp_cards = c
-                opp_deck = make_deck(opp_cards)
+                opp_deck = make_deck(opp_cards, card_pool)
             except Exception as e:
                 logger.warning("Skipping opponent '%s' due to deck error: %s", opp['name'], e)
                 return None
 
-            thread_user_deck = make_deck(valid)
+            thread_user_deck = make_deck(valid, card_pool)
             num_games = 5 if opponent_id else 3
 
             w, l, d = 0, 0, 0
