@@ -51,8 +51,7 @@ MTG Deck Testing is a simulated Magic: The Gathering league that evolves decks t
 ├── data/              Database and card data
 │   └── db.py              PostgreSQL connection pool + queries
 │
-└── tests/             pytest test suite (462+ tests)
-```
+└── tests/             pytest test suite (514+ tests)
 
 ## Data Flow
 

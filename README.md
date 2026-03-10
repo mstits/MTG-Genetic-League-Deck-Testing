@@ -234,7 +234,12 @@ python -m pytest tests/test_tier4.py -v  # Planeswalker tests
 python -m pytest tests/ --cov=engine --cov-report=term-missing
 ```
 
-### Current: 462 passed, 0 failed, 1 skipped
+## Test Suite
+
+```bash
+pytest tests/ -v
+# 514 passed, 1 skipped, 0 failed
+```
 
 Test tiers:
 

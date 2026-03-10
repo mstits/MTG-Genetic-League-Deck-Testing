@@ -310,7 +310,7 @@ class NeuralAgent(BaseAgent):
     
     def _terminal_value(self, state, player_idx: int) -> float:
         """Get value of terminal state."""
-        if state.winner == state.players[player_idx]:
+        if state.winner == state.players[player_idx].name:
             return 1.0
         elif state.winner is None:
             return 0.5
