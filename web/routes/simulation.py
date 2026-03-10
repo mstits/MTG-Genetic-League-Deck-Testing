@@ -72,7 +72,6 @@ async def test_deck(request: Request):
             {"error": "Rate limit exceeded. Please wait 60 seconds before testing again."},
             status_code=429
         )
-    import traceback
     try:
         try:
             body = await request.json()
