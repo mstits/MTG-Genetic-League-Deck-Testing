@@ -13,7 +13,10 @@ import os
 import json
 from datetime import datetime
 from typing import List, Dict, Any
+import logging
 from engine.game import Game
+
+logger = logging.getLogger(__name__)
 
 # Output file for Admin UI
 BUTTERFLY_REPORTS_FILE = os.path.join(
@@ -44,13 +47,13 @@ class MisplayHunter:
         if not snapshots:
             return
             
-        print(f"🦋 [Misplay Hunter] Analyzing Upset (High-ELO player {high_elo_idx}) ...")
+        logger.info("🦋 [Misplay Hunter] Analyzing Upset (High-ELO player %d) ...", high_elo_idx)
         
         # 1. Pivot Point Analysis
         # We find the snapshot where win probability drops the most for the high-ELO player.
         pivot_snapshot = self._find_pivot_point(snapshots, high_elo_idx)
         if not pivot_snapshot:
-            print("🦋 [Misplay Hunter] No pivot point found.")
+            logger.info("🦋 [Misplay Hunter] No pivot point found.")
             return
             
         # 2. Path Branching at the Pivot
@@ -59,9 +62,9 @@ class MisplayHunter:
         # Original path resulting winrate was 0 (since they lost the upset)
         # So we just check if the new path's winrate is > 10%
         if alternate_path_winrate > 0.10:
-            print(f"🦋 [Misplay Hunter] STRATEGIC BLINDSPOT FOUND! Turn {pivot_snapshot['turn']}")
-            print(f"    Original Action: {original_action.description if original_action else 'Pass'}")
-            print(f"    Better Action:   {new_action.description if new_action else 'Pass'} (Win Rate: {alternate_path_winrate*100:.1f}%)")
+            logger.info("🦋 [Misplay Hunter] STRATEGIC BLINDSPOT FOUND! Turn %d", pivot_snapshot['turn'])
+            logger.info("    Original Action: %s", original_action.description if original_action else 'Pass')
+            logger.info("    Better Action:   %s (Win Rate: %.1f%%)", new_action.description if new_action else 'Pass', alternate_path_winrate*100)
             
             self._generate_butterfly_report(
                 high_elo_idx=high_elo_idx,
@@ -74,7 +77,7 @@ class MisplayHunter:
                 vibe_score=alternate_path_winrate * 100 # High sensitivity = high vibe score
             )
         else:
-            print("🦋 [Misplay Hunter] No blindspot found (alternate paths were also doomed).")
+            logger.info("🦋 [Misplay Hunter] No blindspot found (alternate paths were also doomed).")
 
     def _mc_rollout(self, game: Game, high_elo_idx: int, num_games: int = 8) -> float:
         """Runs N fast random/heuristic rollouts to estimate win probability."""

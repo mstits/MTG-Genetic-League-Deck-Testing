@@ -17,6 +17,9 @@ from .zone import Zone
 from .card import Card
 from .deck import Deck
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Basic land type → mana color mapping (Rule 305.6)
 BASIC_LAND_MANA = {
@@ -394,7 +397,7 @@ class Player:
             for land, color in solution:
                 land.tapped = True
         else:
-            print(f"ERROR: Failed to pay cost {cost} despite can_pay_cost passing.")
+            logger.error("Failed to pay cost %s despite can_pay_cost passing.", cost)
 
     def _solve_mana_payment(self, req: Dict[str, int], lands: List[Card]) -> Optional[List[Tuple[Card, str]]]:
         """Backtracking solver to find a valid assignment of lands to requirements.

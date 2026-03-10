@@ -7,6 +7,9 @@ bosses are demonstrating real strategic viability.
 
 from data.db import get_db_connection
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Gauntlet:
@@ -143,7 +146,7 @@ class Gauntlet:
         """
         Inserts Boss Decks into the DB if they don't exist.
         """
-        print("Deploying Gauntlet Bosses...")
+        logger.info("Deploying Gauntlet Bosses...")
         with get_db_connection() as conn:
             cursor = conn.cursor()
             
@@ -153,7 +156,7 @@ class Gauntlet:
                 existing = cursor.fetchone()
                 
                 if not existing:
-                    print(f"Deploying {boss['name']}...")
+                    logger.info("Deploying %s...", boss['name'])
                     cursor.execute('''
                         INSERT INTO decks (name, card_list, division, elo, generation, active, archetype, colors)
                         VALUES (%s, %s, %s, %s, %s, TRUE, %s, %s)

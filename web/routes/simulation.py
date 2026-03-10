@@ -124,7 +124,7 @@ async def test_deck(request: Request):
                         card = dict_to_card(data)
                         deck.add_card(card, count)
                 except Exception as e:
-                    print(f"Skipping corrupt card '{name}': {e}")
+                    logger.warning("Skipping corrupt card '%s': %s", name, e)
                     traceback.print_exc()
             return deck
 

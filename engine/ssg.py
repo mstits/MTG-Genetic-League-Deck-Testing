@@ -9,7 +9,10 @@ import os
 import json
 import random
 import traceback
+import logging
 from typing import List, Dict
+
+logger = logging.getLogger(__name__)
 
 from engine.card import Card
 from engine.player import Player
@@ -174,9 +177,9 @@ def run_ssg_suite(limit: int = 100):
         "data", "legal_cards.json"
     )
     
-    print(f"LOADING DB: {card_db_path}")
+    logger.info("LOADING DB: %s", card_db_path)
     if not os.path.exists(card_db_path):
-        print("legal_cards.json not found.")
+        logger.error("legal_cards.json not found.")
         return
         
     with open(card_db_path, "r") as f:
@@ -206,9 +209,9 @@ def run_ssg_suite(limit: int = 100):
         else:
             failed += 1
             
-    print(f"SSG SUITE COMPLETE: {passed} passed, {failed} failed (crashed).")
+    logger.info("SSG SUITE COMPLETE: %d passed, %d failed (crashed).", passed, failed)
     if failed > 0:
-        print("Check admin/admin_crash_reports.json for details.")
+        logger.warning("Check admin/admin_crash_reports.json for details.")
 
 if __name__ == "__main__":
     run_ssg_suite(500)
