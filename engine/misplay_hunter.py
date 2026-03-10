@@ -130,38 +130,40 @@ class MisplayHunter:
 
     def _branch_simulation(self, pivot_snapshot: Dict, high_elo_idx: int):
         """Takes an alternate action at the pivot point and runs rollouts."""
-        g: Game = pivot_snapshot['game_state']
-        player = g.players[high_elo_idx]
+        g_orig: Game = pivot_snapshot['game_state']
+        
+        # Clone the game FIRST so we generate and apply actions using the clone's native objects
+        branch_game = g_orig.clone()
+        player_branch = branch_game.players[high_elo_idx]
         
         from agents.heuristic_agent import HeuristicAgent
         agent = HeuristicAgent()
         
-        # Get legal actions from the Game itself
-        legal_actions = g.get_legal_actions()
+        # Get legal actions from the cloned Game
+        legal_actions = branch_game.get_legal_actions()
         if len(legal_actions) <= 1:
             return 0.0, None, None  # No alternative
             
-        # The agent's chosen action is what it *would* pick
-        actual_action = agent.get_action(g, player)
+        # The agent's chosen action is what it *would* pick inside the clone
+        actual_action_branch = agent.get_action(branch_game, player_branch)
         
         # Find a different action to branch on
         new_action = None
         for action in legal_actions:
-            if action != actual_action and action.get('type') != 'pass':
+            if action != actual_action_branch and action.get('type') != 'pass':
                 new_action = action
                 break
         
         if new_action is None:
-            return 0.0, actual_action, None
+            return 0.0, actual_action_branch, None
         
-        # Apply the alternate action
-        branch_game = g.clone()
+        # Apply the alternate action using clone-native objects safely
         branch_game.apply_action(new_action)
         
         # Run Monte Carlo rollouts to estimate win probability of alternate path
         win_prob = self._mc_rollout(branch_game, high_elo_idx, num_games=15)
         
-        return win_prob, actual_action, new_action
+        return win_prob, actual_action_branch, new_action
 
     def _generate_butterfly_report(self, high_elo_idx: int, deck1_id: int, deck2_id: int, pivot_turn: int, actual_action: str, golden_action: str, winrate_diff: float, vibe_score: float):
         """Append the finding to the Admin UI data store."""

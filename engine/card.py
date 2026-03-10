@@ -443,7 +443,27 @@ class Card:
             def offspring_etb(game, card):
                 if card.was_offspring_paid:
                     import copy
+                    
+                    # Prevent deepcopying the entire Player object graph (huge performance leak)
+                    ctrl = card.controller
+                    eq_to = card.equipped_to
+                    ench_to = card.enchanted_to
+                    
+                    card.controller = None
+                    card.equipped_to = None
+                    card.enchanted_to = None
+                    
                     token = copy.deepcopy(card)
+                    
+                    # Restore references
+                    card.controller = ctrl
+                    card.equipped_to = eq_to
+                    card.enchanted_to = ench_to
+                    
+                    token.controller = ctrl
+                    token.equipped_to = eq_to
+                    token.enchanted_to = ench_to
+                    
                     token.name = f"{card.name} Token"
                     token.type_line = f"Token {card.type_line}"
                     token.base_power = 1
@@ -451,6 +471,7 @@ class Card:
                     token.cost = "" # Tokens have no mana cost
                     token.summoning_sickness = True
                     token.was_offspring_paid = False # Prevent infinite token loop
+                    
                     from engine.card import _card_id_counter
                     token.id = next(_card_id_counter)
                     game.battlefield.add(token)
@@ -541,12 +562,14 @@ class Card:
             controller = card.controller
             exiled = []
             found = None
+            
+            from engine.player import Player
+            
             for _ in range(len(controller.library)):
                 if not controller.library.cards:
                     break
                 top = controller.library.cards.pop(0)
-                from engine.player import Player as _P2
-                top_cmc = _P2._parse_cmc(top.cost) if top.cost else 0
+                top_cmc = Player._parse_cmc(top.cost) if top.cost else 0
                 if not top.is_land and top_cmc < spell_cmc and top_cmc > 0:
                     found = top
                     break
@@ -5491,7 +5514,7 @@ class Card:
         
         # 5. When this creature becomes the target — trigger
         if re.search(r'when\s+(?:this|~)\s+becomes?\s+(?:the\s+)?target', oracle):
-            self.broad_trigger = True
+            self.broad_trigger = lambda g, c: g.log_event(f"T{g.turn_count}: {c.name} becomes target (trigger)")
             return
         
         # 6. Regenerate
@@ -5545,17 +5568,17 @@ class Card:
                 self.death_effect = death_token
                 return
             else:
-                self.broad_trigger = True
+                self.broad_trigger = lambda g, c: g.log_event(f"Death: {c.name} — generic trigger")
                 return
         
         # 11. "When this creature deals damage" not caught by combat_damage_trigger
         if re.search(r'when(?:ever)?\s+(?:this|~)\s+(?:creature\s+)?deals?\s+(?:combat\s+)?damage', oracle):
-            self.broad_trigger = True
+            self.broad_trigger = lambda g, c: g.log_event(f"Damage: {c.name} deals damage (trigger)")
             return
         
         # 12. "Whenever" triggers not caught above
         if 'whenever' in oracle and self.is_creature:
-            self.broad_trigger = True
+            self.broad_trigger = lambda g, c: g.log_event(f"Trigger: {c.name} (generic whenever)")
             return
         
         # 13. "Enchant" / aura-like effects on non-aura cards

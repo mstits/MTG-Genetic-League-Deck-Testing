@@ -1608,6 +1608,7 @@ class HeuristicAgent(BaseAgent):
         # ── T5: Race-aware blocking override ────────────────────────
         # If we're ahead in the damage race, DON'T block (just race)
         if blocks and not getattr(self, 'desperation_mode', False):
+            opp = next(p for p in game.players if p != player)
             my_clock, opp_clock = self._calculate_clock(game, player, opp)
             if my_clock < opp_clock and player.life > 5:
                 # Make sure we don't skip blocks when they'd be lethal

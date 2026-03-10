@@ -142,7 +142,7 @@ class LeagueManager:
             match_args = []
             
             from engine.format_validator import FormatValidator, LegalityError
-            validator = FormatValidator(self.card_pool_list, "constructed")
+            validator = FormatValidator(self.card_pool_list, "legacy")
             
             # Sort decks by ELO with small random jitter for variety
             sorted_decks = sorted(decks_data, key=lambda d: d['elo'] + random.uniform(-20, 20), reverse=True)

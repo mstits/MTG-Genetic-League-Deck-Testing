@@ -243,7 +243,7 @@ async def get_leaderboard(request: Request, format: str = "html", limit: int = 5
         <tr class="{row_cls}" onclick="window.location.href='/deck/{d['id']}'">
             <td class="p-3 text-gray-500">{i+1}</td>
             <td class="p-3 {name_cls}">{arch_emoji} {safe_name}</td>
-            <td class="p-3">{color_badges}</td>
+            <td class="p-3"><div class="flex gap-0.5">{color_badges}</div></td>
             <td class="p-3 text-sm {arch_cls} font-medium">{arch_label}</td>
             <td class="p-3 text-center font-bold text-gray-300">🧂 {bracket}</td>
             <td class="p-3"><span class="px-2 py-1 rounded-full text-xs {div_cls}">{safe_div}</span></td>
@@ -252,7 +252,7 @@ async def get_leaderboard(request: Request, format: str = "html", limit: int = 5
             <td class="p-3 font-mono text-sm text-gray-300">{wr}</td>
         </tr>
         """
-    return html
+    return HTMLResponse(content=html)
 @router.get("/api/top-cards", response_class=HTMLResponse)
 async def get_top_cards_api(request: Request):
     """Render the HTML fragment showing the cards with the highest win rates."""

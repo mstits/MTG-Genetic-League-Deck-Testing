@@ -18,41 +18,200 @@ from engine.deck import Deck
 try:
     import numpy as np
 except ImportError:
-    import array as _array
+    import math
+    import random as _r
+    
+    class ndarray(list):
+        def astype(self, dtype):
+            return self
+            
+        def __setitem__(self, key, value):
+            if isinstance(key, tuple) and len(key) == 2:
+                self[key[0]][key[1]] = value
+            else:
+                super().__setitem__(key, value)
+            
+        def __matmul__(self, other):
+            # Matrix multiplication A @ B
+            # 1D @ 1D -> scalar
+            if not isinstance(self[0], (list, ndarray)) and not isinstance(other[0], (list, ndarray)):
+                return sum(a * b for a, b in zip(self, other))
+            # 2D @ 2D -> 2D
+            if isinstance(self[0], (list, ndarray)) and isinstance(other[0], (list, ndarray)):
+                res = []
+                for i in range(len(self)):
+                    row = []
+                    for j in range(len(other[0])):
+                        val = sum(self[i][k] * other[k][j] for k in range(len(self[0])))
+                        row.append(val)
+                    res.append(ndarray(row))
+                return ndarray(res)
+            # 1D @ 2D -> 1D
+            if not isinstance(self[0], (list, ndarray)) and isinstance(other[0], (list, ndarray)):
+                res = []
+                for j in range(len(other[0])):
+                    val = sum(self[k] * other[k][j] for k in range(len(self)))
+                    res.append(val)
+                return ndarray(res)
+            # 2D @ 1D -> 1D
+            if isinstance(self[0], (list, ndarray)) and not isinstance(other[0], (list, ndarray)):
+                res = []
+                for i in range(len(self)):
+                    val = sum(self[i][k] * other[k] for k in range(len(other)))
+                    res.append(val)
+                return ndarray(res)
+            return NotImplemented
+
+        def __mul__(self, other):
+            if isinstance(other, (int, float)):
+                if isinstance(self[0], (list, ndarray)):
+                    return ndarray([ndarray([v * other for v in row]) for row in self])
+                return ndarray([v * other for v in self])
+            # Element-wise fallback (simplified)
+            return NotImplemented
+            
+        def __rmul__(self, other):
+            return self.__mul__(other)
+            
+        def __sub__(self, other):
+            if isinstance(other, (list, ndarray)):
+                if isinstance(self[0], (list, ndarray)):
+                    return ndarray([ndarray([a - b for a, b in zip(r1, r2)]) for r1, r2 in zip(self, other)])
+                return ndarray([a - b for a, b in zip(self, other)])
+            if isinstance(other, (int, float)):
+                if isinstance(self[0], (list, ndarray)):
+                    return ndarray([ndarray([v - other for v in row]) for row in self])
+                return ndarray([v - other for v in self])
+            return NotImplemented
+
+        def __add__(self, other):
+             if isinstance(other, (list, ndarray)):
+                 if isinstance(self[0], (list, ndarray)):
+                     return ndarray([ndarray([a + b for a, b in zip(r1, r2)]) for r1, r2 in zip(self, other)])
+                 return ndarray([a + b for a, b in zip(self, other)])
+             res = []
+             if isinstance(other, (int, float)):
+                  if isinstance(self[0], (list, ndarray)):
+                      return ndarray([ndarray([v + other for v in row]) for row in self])
+                  return ndarray([v + other for v in self])
+             return NotImplemented
+            
+        def __truediv__(self, other):
+            if isinstance(other, (int, float)):
+                if isinstance(self[0], (list, ndarray)):
+                    return ndarray([ndarray([v / other for v in row]) for row in self])
+                return ndarray([v / other for v in self])
+            if isinstance(other, (list, ndarray)):
+                if isinstance(self[0], (list, ndarray)):
+                    return ndarray([ndarray([a / b for a, b in zip(r1, r2)]) for r1, r2 in zip(self, other)])
+                return ndarray([a / b for a, b in zip(self, other)])
+            return NotImplemented
+            
+        def __rtruediv__(self, other):
+             if isinstance(other, (int, float)):
+                 if isinstance(self[0], (list, ndarray)):
+                     return ndarray([ndarray([other / v for v in row]) for row in self])
+                 return ndarray([other / v for v in self])
+             return NotImplemented
+            
+        @property
+        def T(self):
+            if not isinstance(self[0], (list, ndarray)):
+                return self
+            return ndarray([ndarray([self[j][i] for j in range(len(self))]) for i in range(len(self[0]))])
+            
+        def flatten(self):
+            if not isinstance(self[0], (list, ndarray)):
+                return self
+            res = []
+            for row in self:
+                res.extend(row)
+            return ndarray(res)
+            
+        def reshape(self, *shape):
+            if len(shape) == 1 and isinstance(shape[0], tuple):
+                shape = shape[0]
+            flat = self.flatten()
+            if len(shape) == 2:
+                if shape[0] == -1:
+                    rows = len(flat) // shape[1]
+                    cols = shape[1]
+                else:
+                    rows = shape[0]
+                    cols = shape[1]
+                res = []
+                idx = 0
+                for _ in range(rows):
+                    res.append(ndarray(flat[idx:idx+cols]))
+                    idx += cols
+                return ndarray(res)
+            return self # Fallback
+            
+        def astype(self, dtype):
+            return self
+
     class _NpFallback:
         float32 = float
+        ndarray = ndarray
         @staticmethod
         def zeros(shape, dtype=None):
             if isinstance(shape, tuple):
-                return [[0.0] * shape[1] for _ in range(shape[0])]
-            return [0.0] * shape
+                return ndarray([ndarray([0.0] * shape[1]) for _ in range(shape[0])])
+            return ndarray([0.0] * shape)
         @staticmethod
         def array(lst, dtype=None):
-            return list(lst)
+            if not lst: return ndarray([])
+            if isinstance(lst[0], (list, tuple)):
+                return ndarray([ndarray(r) for r in lst])
+            return ndarray(lst)
         @staticmethod
         def exp(x):
+            if isinstance(x, ndarray):
+                if isinstance(x[0], ndarray):
+                    return ndarray([ndarray([math.exp(v) for v in row]) for row in x])
+                return ndarray([math.exp(v) for v in x])
             if isinstance(x, (list, tuple)):
-                return [math.exp(v) for v in x]
+                return ndarray([math.exp(v) for v in x])
             return math.exp(x)
         @staticmethod
         def clip(x, lo, hi):
+            if isinstance(x, ndarray):
+                if isinstance(x[0], ndarray):
+                    return ndarray([ndarray([max(lo, min(hi, v)) for v in row]) for row in x])
+                return ndarray([max(lo, min(hi, v)) for v in x])
             return max(lo, min(hi, x))
         @staticmethod
         def sqrt(x):
             return math.sqrt(x)
         @staticmethod
-        def sum(x, **kw):
+        def sum(x, axis=None, keepdims=False):
+            if isinstance(x, ndarray):
+                if isinstance(x[0], ndarray):
+                    if axis == -1 or axis == 1:
+                        res = ndarray([sum(row) for row in x])
+                        if keepdims:
+                            return ndarray([ndarray([v]) for v in res])
+                        return res
+                return sum(x)
             return sum(x) if isinstance(x, (list, tuple)) else x
         @staticmethod
-        def max(x, **kw):
+        def max(x, axis=None, keepdims=False):
+            if isinstance(x, ndarray):
+                if isinstance(x[0], ndarray):
+                    if axis == -1 or axis == 1:
+                        res = ndarray([max(row) for row in x])
+                        if keepdims:
+                            return ndarray([ndarray([v]) for v in res])
+                        return res
+                return max(x)
             return max(x) if isinstance(x, (list, tuple)) else x
         class random:
             @staticmethod
             def randn(*shape):
                 import random as _r
                 if len(shape) == 2:
-                    return [[_r.gauss(0,1) for _ in range(shape[1])] for _ in range(shape[0])]
-                return [_r.gauss(0,1) for _ in range(shape[0])]
+                    return ndarray([ndarray([_r.gauss(0,1) for _ in range(shape[1])]) for _ in range(shape[0])])
+                return ndarray([_r.gauss(0,1) for _ in range(shape[0])])
         def savez(self, *a, **kw): pass
         def load(self, *a, **kw): return {}
     np = _NpFallback()
