@@ -160,7 +160,8 @@ def run_match_task(d1_id, d2_id, d1_cards, d2_cards, season_number):
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ''', (season_number, d1_id, d2_id, winner_id, total_turns // max(games_played, 1), log_json, filepath))
                 
-                k = 32
+                ELO_K_FACTOR = 32  # Standard chess Elo K-factor
+                k = ELO_K_FACTOR
                 cursor.execute('SELECT elo FROM decks WHERE id = %s', (d1_id,))
                 elo1 = cursor.fetchone()['elo']
                 cursor.execute('SELECT elo FROM decks WHERE id = %s', (d2_id,))

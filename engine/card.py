@@ -990,7 +990,7 @@ class Card:
             n = {'a': 1, 'two': 2, 'three': 3}.get(d, None)
             if n is None:
                 try: n = int(d)
-                except: n = 1
+                except ValueError: n = 1
             def death_draw(game, card, count=n):
                 card.controller.draw_card(count, game=game)
                 game.log_event(f"Death: {card.name} — {card.controller.name} draws {count}")
@@ -1598,7 +1598,7 @@ class Card:
             amount = {'a': 1, 'two': 2, 'three': 3}.get(d, None)
             if amount is None:
                 try: amount = int(d)
-                except: amount = 1
+                except ValueError: amount = 1
             effects.append(self._make_etb_draw(amount))
             self.is_draw = True
         
@@ -2146,7 +2146,7 @@ class Card:
             amount = {'a': 1, 'card': 1, 'two': 2, 'three': 3}.get(d, None)
             if amount is None:
                 try: amount = int(d)
-                except: amount = 1
+                except ValueError: amount = 1
             self.effect = self._make_draw_effect(amount)
             self.is_draw = True
             return
@@ -2248,7 +2248,7 @@ class Card:
             cnt = cnt_map.get(cnt_str, None)
             if cnt is None:
                 try: cnt = int(cnt_str)
-                except: cnt = 1
+                except ValueError: cnt = 1
             tp = int(token_match.group(2))
             tt = int(token_match.group(3))
             self.effect = self._make_etb_create_token(cnt, tp, tt)
@@ -4279,7 +4279,7 @@ class Card:
                 word = draw_match.group(1)
                 word_to_num = {'a': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5}
                 try: amt = int(word)
-                except: amt = word_to_num.get(word, 1)
+                except ValueError: amt = word_to_num.get(word, 1)
             else:
                 amt = 1
             def spell_draw(game, card, amount=amt):
@@ -4309,7 +4309,7 @@ class Card:
             num_word = tok.group(1)
             word_to_num = {'a': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5}
             try: num = int(num_word)
-            except: num = word_to_num.get(num_word, 1)
+            except ValueError: num = word_to_num.get(num_word, 1)
             tp, tt = int(tok.group(2)), int(tok.group(3))
             def spell_token(game, card, _n=num, _tp=tp, _tt=tt):
                 from engine.card import Card
