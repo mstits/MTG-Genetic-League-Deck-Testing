@@ -102,3 +102,10 @@ def get_card_search_cache() -> list[dict]:
             'cmc': c.get('cmc', 0),
         })
     return _card_search_cache
+
+
+# ─── Public Helpers ───────────────────────────────────────────────────────────
+
+def is_card_pool_cached() -> bool:
+    """Check if the card pool has been loaded (for health checks)."""
+    return _card_pool_cache is not None

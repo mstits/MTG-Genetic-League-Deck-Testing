@@ -1,6 +1,7 @@
 """Admin routes — portal UI, health checks, configuration, and monitoring.
 
 Endpoints:
+    GET  /health                  — Service health check (DB + cache status)
     GET  /admin                  — Admin portal HTML page
     GET  /admin/butterfly        — Misplay Hunter butterfly map viewer
     GET  /api/admin/health       — Engine rules coverage stats
@@ -27,7 +28,30 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["admin"])
 
 
-# ─── Admin Pages ──────────────────────────────────────────────────────────────
+# ─── Service Health Check ────────────────────────────────────────────────────
+
+@router.get("/health", response_class=JSONResponse)
+async def health_check():
+    """Health check endpoint for container orchestration (k8s probes).
+
+    Returns:
+        JSON with service status, DB connectivity, and cache state.
+        200 if healthy, 503 if DB is unreachable.
+    """
+    from web.cache import is_card_pool_cached
+    status = {"service": "ok", "db": "unknown", "card_pool_cached": is_card_pool_cached()}
+    http_code = 200
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1")
+            status["db"] = "connected"
+    except Exception as e:
+        logger.warning("Health check: DB unreachable: %s", e)
+        status["db"] = "unreachable"
+        status["service"] = "degraded"
+        http_code = 503
+    return JSONResponse(status, status_code=http_code)
 
 @router.get("/admin", response_class=HTMLResponse)
 async def admin_portal(request: Request):

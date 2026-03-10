@@ -1,33 +1,18 @@
 """Web Dashboard — FastAPI application entry point.
 
-This module initialises the FastAPI app, CORS, WebSocket streaming,
-and wires in all route modules.
+Pure wiring: creates the app, configures CORS, mounts routers, and
+provides the WebSocket for live ELO streaming. Nothing else.
 
-Shared state (templates, card-pool caches) lives in web/cache.py to
-avoid circular imports between app.py and route modules.
-
-Route modules (web/routes/):
-    admin.py      — Admin portal, health, config, butterfly reports
-    meta.py       — Matchup matrix, turn distribution, meta trends
-    simulation.py — Test-deck, flex-test, mana-calc, gauntlet, salt
-    decks.py      — Deck detail, suggestions, compare, export, browse
-    views.py      — Dashboard, leaderboard, top-cards, meta overview,
-                     match history, stats, matchups, matches, replay
-
-Shared helpers: web/helpers.py (rate limiter, decklist parser)
-Shared caches:  web/cache.py  (templates, card pool, card search)
+Shared state lives in web/cache.py (templates, card pool, search cache).
+Route modules live in web/routes/ (admin, meta, simulation, decks, views).
+Shared helpers live in web/helpers.py (rate limiter, decklist parser).
 """
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
 import uvicorn
 import os
 import logging
-from data.db import get_db_connection
 from starlette.middleware.cors import CORSMiddleware
-
-# Shared state — accessed by route modules via `from web.cache import ...`
-from web.cache import templates, get_card_pool, get_card_search_cache  # noqa: F401
 
 app = FastAPI(title="MTG Genetic League", description="AI-powered deck evolution dashboard")
 
@@ -59,32 +44,6 @@ app.include_router(decks_router)
 app.include_router(views_router)
 
 
-# ─── Health Check ─────────────────────────────────────────────────────────────
-
-@app.get("/health", response_class=JSONResponse)
-async def health_check():
-    """Health check endpoint for container orchestration (k8s probes).
-
-    Returns:
-        JSON with service status, DB connectivity, and cache state.
-        200 if healthy, 503 if DB is unreachable.
-    """
-    from web.cache import _card_pool_cache  # noqa: F401
-    status = {"service": "ok", "db": "unknown", "card_pool_cached": _card_pool_cache is not None}
-    http_code = 200
-    try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT 1")
-            status["db"] = "connected"
-    except Exception as e:
-        logger.warning("Health check: DB unreachable: %s", e)
-        status["db"] = "unreachable"
-        status["service"] = "degraded"
-        http_code = 503
-    return JSONResponse(status, status_code=http_code)
-
-
 # ─── WebSocket: Real-Time ELO Streaming ──────────────────────────────────────
 
 _ws_clients: list[WebSocket] = []
@@ -92,10 +51,7 @@ _ws_clients: list[WebSocket] = []
 
 @app.websocket("/ws/elo-stream")
 async def elo_stream(websocket: WebSocket):
-    """Stream live ELO updates as matches complete.
-
-    Clients connect and receive JSON messages with deck ELO deltas.
-    """
+    """Stream live ELO updates as matches complete."""
     await websocket.accept()
     _ws_clients.append(websocket)
     try:
