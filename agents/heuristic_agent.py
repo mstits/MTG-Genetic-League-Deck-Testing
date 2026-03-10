@@ -18,6 +18,8 @@ Decision priority (in get_action):
 
 from .base_agent import BaseAgent
 from engine.player import Player
+import math
+import re
 
 
 class HeuristicAgent(BaseAgent):
@@ -92,7 +94,6 @@ class HeuristicAgent(BaseAgent):
         
         Returns (my_clock, opp_clock) where lower = faster kill.
         """
-        import math
         my_creatures = [c for c in game.battlefield.cards
                        if c.controller == player and c.is_creature and not c.tapped]
         opp_creatures = [c for c in game.battlefield.cards
@@ -260,14 +261,14 @@ class HeuristicAgent(BaseAgent):
     # easier to navigate.
 
     @staticmethod
-    def _score_land(action, next_turn_spells, hand_spells, in_play_colors, has_immediate_play, _re) -> float:
+    def _score_land(action, next_turn_spells, hand_spells, in_play_colors, has_immediate_play) -> float:
         """Score a land action based on color-fixing, curve enablement, and ETB status."""
         land = action['card']
         produces = set(getattr(land, 'produces', []))
         is_tapped = getattr(land, 'enters_tapped', False)
         score = 0
         for spell in next_turn_spells:
-            needed = set(_re.findall(r'\{([WUBRG])\}', spell.cost))
+            needed = set(re.findall(r'\{([WUBRG])\}', spell.cost))
             available = in_play_colors | produces
             if needed <= available:
                 score += 3
@@ -275,7 +276,7 @@ class HeuristicAgent(BaseAgent):
                 score += 1
         needed_colors = set()
         for spell in hand_spells:
-            for c in _re.findall(r'\{([WUBRG])\}', spell.cost):
+            for c in re.findall(r'\{([WUBRG])\}', spell.cost):
                 needed_colors.add(c)
         missing = needed_colors - in_play_colors
         if produces & missing:
@@ -728,7 +729,6 @@ class HeuristicAgent(BaseAgent):
             if len(land_actions) == 1:
                 return land_actions[0]
             
-            import re as _re
             
             # Gather hand spells and their color requirements + CMC
             hand_spells = [c for c in player.hand.cards if c.cost and not c.is_land]
@@ -755,7 +755,7 @@ class HeuristicAgent(BaseAgent):
             )
             
             def land_score(action):
-                return self._score_land(action, next_turn_spells, hand_spells, in_play_colors, has_immediate_play, _re)
+                return self._score_land(action, next_turn_spells, hand_spells, in_play_colors, has_immediate_play)
             
             best_land = max(land_actions, key=land_score)
             return best_land

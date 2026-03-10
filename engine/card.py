@@ -23,7 +23,9 @@ awaiting resolution.
 from typing import List, Optional, Any, Dict, Callable, TYPE_CHECKING
 from dataclasses import dataclass, field
 import re
+import copy
 import itertools
+import random
 
 if TYPE_CHECKING:
     from .game import Game
@@ -574,7 +576,6 @@ class Card:
                     game.log_event(f"  Cascade → {found.name} (free)")
             
             # Put exiled cards on bottom in random order
-            import random
             random.shuffle(exiled)
             controller.library.cards.extend(exiled)
         
@@ -1483,7 +1484,6 @@ class Card:
         returns the wrong card (e.g., library copy instead of battlefield),
         corrupting all state mutations (tapped, damage, counters, etc.).
         """
-        import copy as _copy
         cls = self.__class__
         result = cls.__new__(cls)
         memo[id(self)] = result
@@ -1492,7 +1492,7 @@ class Card:
                 # Assign a fresh unique ID
                 object.__setattr__(result, k, next(_card_id_counter))
             else:
-                object.__setattr__(result, k, _copy.deepcopy(v, memo))
+                object.__setattr__(result, k, copy.deepcopy(v, memo))
         return result
 
     @property

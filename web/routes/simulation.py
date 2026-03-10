@@ -15,8 +15,10 @@ Endpoints:
 """
 
 import os
+import hashlib
 import json
 import logging
+import random
 from typing import List, Optional
 
 from fastapi import APIRouter, Request
@@ -229,7 +231,6 @@ async def test_deck(request: Request):
                     deck_colors.add(c)
             colors_str = ''.join(sorted(deck_colors, key=lambda c: 'WUBRG'.index(c) if c in 'WUBRG' else 99))
 
-            import hashlib
             deck_hash = hashlib.md5(json.dumps(valid, sort_keys=True).encode()).hexdigest()[:4]
             deck_name = f"User-{colors_str or 'C'}-{deck_hash}"
 
@@ -381,7 +382,6 @@ async def evaluate_mulligan(req: MulliganRequest):
 
     hand_cards = []
     if not req.hand:
-        import random
         deck_list = deck.get_game_deck()
         random.shuffle(deck_list)
         hand_cards = deck_list[:7]

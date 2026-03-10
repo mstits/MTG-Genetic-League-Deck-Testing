@@ -20,7 +20,9 @@ from .player import Player
 from .zone import Zone
 from .card import Card, StackItem
 from .layers import LayerEngine
+import copy
 import logging
+import random
 import re
 
 logger = logging.getLogger(__name__)
@@ -144,7 +146,6 @@ class Game:
 
     def _fast_cow_clone(self) -> 'Game':
         """Copy-on-Write state cloning for <1ms MCTS performance."""
-        import copy
         new_game = copy.copy(self)  # Shallow copy main structure
         
         # Deep copy only the arrays that mutate (Stack, Battlefield arrays)
@@ -204,7 +205,6 @@ class Game:
                 (Partial Observability) by shuffling the opponent's hand and library 
                 together and redrawing. Also implements Ensemble Determinization biases.
         """
-        import random
         
         # State-snapshot replacing slow deepcopy to massively increase MCTS depth
         new_game = self._fast_cow_clone()
@@ -2603,7 +2603,6 @@ class Game:
                     break
         
         # Put exiled cards on bottom of library in random order
-        import random
         random.shuffle(exiled)
         for c in exiled:
             player.library.cards.append(c)
