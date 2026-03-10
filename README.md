@@ -10,7 +10,7 @@ The MTG Genetic League evolves decks through natural selection — populations o
 
 | For MTG Players | For Engineers |
 |---|---|
-| Test your deck against evolved meta opponents | Full MTG rules engine with 269+ automated tests |
+| Test your deck against evolved meta opponents | Full MTG rules engine with 348+ automated tests |
 | View matchup spread, win rates, and metagame trends | Genetic algorithm with novelty-search fitness |
 | Export decklists to Arena/MTGO format with sideboard | Distributed simulation via Redis + PostgreSQL |
 | Analyze opening hands with Mulligan AI | Real-time ELO streaming via WebSocket |
@@ -101,9 +101,11 @@ python -m uvicorn web.app:app --reload --port 8000
 ### Production (Docker Compose)
 
 ```bash
+cp .env.example .env  # Edit credentials for production
 docker-compose up -d --build
 # Dashboard: http://localhost:8000
 # Admin:     http://localhost:8000/admin
+# Health:    http://localhost:8000/health
 ```
 
 ---
@@ -147,9 +149,10 @@ web/                 Dashboard and API
 data/                Storage layer
 └── db.py            PostgreSQL/SQLite dual-backend with auto-detection
 
-tests/               269+ automated tests
+tests/               348+ automated tests
 ├── test_engine.py   Core rules: lands, combat, stack, SBAs
 ├── test_tier2-7.py  Mechanics: auras, equipment, flashback, vehicles...
+├── test_api.py      All web API endpoints (28 tests)
 └── test_strategic_agent.py  AI integration tests
 ```
 
@@ -205,6 +208,10 @@ Role detection (aggro/midrange/control) adjusts every decision contextually.
 | `/api/test-deck` | POST | Test a decklist against top league opponents |
 | `/api/mutations/heatmap` | GET | Top card swaps ranked by ELO delta |
 | `/api/hall-of-fame` | GET | All-time greatest evolved decks |
+| `/api/deck/{id}/suggestions` | GET | AI-recommended cards by color identity + win rate |
+| `/api/compare` | GET | Side-by-side deck comparison (shared/unique cards) |
+| `/api/turn-distribution` | GET | Game length histogram with average turn count |
+| `/health` | GET | Container health check (DB + cache status) |
 | `/api/engine/config` | GET/POST | Engine runtime configuration |
 | `/api/butterfly-reports` | GET | Misplay Hunter upset analysis reports |
 | `/deck/{id}` | GET | Deck detail page with stats and lineage |
@@ -227,7 +234,7 @@ python -m pytest tests/test_tier4.py -v  # Planeswalker tests
 python -m pytest tests/ --cov=engine --cov-report=term-missing
 ```
 
-**Current: 269 passed, 0 failed, 1 skipped**
+**Current: 348 passed, 0 failed, 1 skipped**
 
 Test tiers:
 
@@ -238,6 +245,7 @@ Test tiers:
 - **Tier 5** (`test_tier5.py`): Triggers — attack, combat damage, landfall, kicker, counterspells
 - **Tier 6** (`test_tier6.py`): Cycling, fight, mill, proliferate
 - **Tier 7** (`test_tier7.py`): Vehicles, prowess, bounce, sacrifice, treasure
+- **API** (`test_api.py`): All web endpoints — health, leaderboard, meta, comparison, coverage
 
 ---
 

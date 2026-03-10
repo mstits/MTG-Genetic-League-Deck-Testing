@@ -2,6 +2,9 @@
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Environment (credentials — never commit)
+.env
 *.so
 .venv/
 venv/

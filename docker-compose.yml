@@ -1,24 +1,29 @@
 version: '3.8'
 
+# ─── MTG Genetic League — Docker Compose ────────────────────────────────────
+# Copy .env.example to .env before running: cp .env.example .env
+# All sensitive values (passwords, keys) are sourced from .env
+
 services:
+  # ─── Web Application ────────────────────────────────────────────────────────
   web:
     build: .
     ports:
-      - "8000:8000"
+      - "${PORT:-8000}:8000"
     volumes:
       - .:/app
     depends_on:
       - db
       - redis
-    environment:
-      - ENVIRONMENT=production
-      - HOST=0.0.0.0
-      - PORT=8000
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/mtg_league
-      - REDIS_URL=redis://redis:6379
-      - MILVUS_PATH=http://milvus-standalone:19530
+    env_file: .env
     command: uvicorn web.app:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
+  # ─── Simulation Worker ──────────────────────────────────────────────────────
   sim-worker:
     build: .
     depends_on:
@@ -26,28 +31,33 @@ services:
       - redis
     volumes:
       - .:/app
-    environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/mtg_league
-      - REDIS_URL=redis://redis:6379
-      - MILVUS_PATH=http://milvus-standalone:19530
+    env_file: .env
     command: python worker.py
 
+  # ─── PostgreSQL Database ────────────────────────────────────────────────────
   db:
     image: postgres:15-alpine
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: mtg_league
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
+  # ─── Redis Cache ────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
 
+  # ─── Milvus Dependencies (etcd, minio) ─────────────────────────────────────
   etcd:
     image: quay.io/coreos/etcd:v3.5.5
     environment:
@@ -62,12 +72,13 @@ services:
   minio:
     image: minio/minio:RELEASE.2023-03-20T20-16-18Z
     environment:
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
     volumes:
       - minio_data:/minio_data
     command: minio server /minio_data --console-address ":9001"
-    
+
+  # ─── Milvus Vector DB (card similarity search) ─────────────────────────────
   milvus-standalone:
     image: milvusdb/milvus:v2.3.5
     command: ["milvus", "run", "standalone"]
