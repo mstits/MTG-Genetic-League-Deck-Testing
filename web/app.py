@@ -46,10 +46,37 @@ logger = logging.getLogger(__name__)
 from starlette.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8000", "http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:8000",
+        "http://localhost:3000",
+        os.getenv("CORS_ORIGIN", ""),
+    ],
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+
+@app.get("/health", response_class=JSONResponse)
+async def health_check():
+    """Health check endpoint for container orchestration (k8s probes).
+
+    Returns:
+        JSON with service status, DB connectivity, and cache state.
+        200 if healthy, 503 if DB is unreachable.
+    """
+    status = {"service": "ok", "db": "unknown", "card_pool_cached": _card_pool_cache is not None}
+    http_code = 200
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1")
+            status["db"] = "connected"
+    except Exception as e:
+        logger.warning("Health check: DB unreachable: %s", e)
+        status["db"] = "unreachable"
+        status["service"] = "degraded"
+        http_code = 503
+    return JSONResponse(status, status_code=http_code)
 
 # ─── Module-Level Card Pool Cache ─────────────────────────────────────────────
 _card_pool_cache = None
@@ -112,7 +139,8 @@ async def elo_stream(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         _ws_clients.remove(websocket)
-    except Exception:
+    except Exception as e:
+        logger.debug("WebSocket connection error: %s", e)
         if websocket in _ws_clients:
             _ws_clients.remove(websocket)
 
@@ -126,7 +154,8 @@ async def broadcast_elo_update(data: dict):
     for ws in _ws_clients:
         try:
             await ws.send_json(data)
-        except Exception:
+        except Exception as e:
+            logger.debug("WebSocket send failed, marking for disconnect: %s", e)
             disconnected.append(ws)
     for ws in disconnected:
         _ws_clients.remove(ws)
@@ -195,7 +224,8 @@ async def get_meta_map():
                     for n in cl:
                         counts[n] = counts.get(n, 0) + 1
                     cl = counts
-            except:
+            except Exception as e:
+                logger.debug("Failed to parse card_list for network graph: %s", e)
                 cl = {}
             deck_cards.append(cl)
             all_cards.update(cl.keys())
@@ -270,7 +300,8 @@ async def get_leaderboard(request: Request, format: str = "html", limit: int = 5
         
         try:
             decklist = json.loads(d.get('card_list') or '{}')
-        except:
+        except Exception as e:
+            logger.debug("Failed to parse card_list for salt score: %s", e)
             decklist = {}
             
         bracket = calculate_salt_score(decklist).get('bracket', 1)
@@ -1215,8 +1246,8 @@ async def view_deck(request: Request, deck_id: int):
                 r = dict(row)
                 r['win_rate'] = round(r['wins'] / max(r['total'], 1) * 100, 1)
                 matchup_spread.append(r)
-        except Exception:
-            pass  # Graceful fallback if archetype column missing
+        except Exception as e:
+            logger.debug("Matchup spread query failed (archetype column may be missing): %s", e)
         
         # Elo History — compute trajectory from match results
         elo_history = []
@@ -1236,8 +1267,8 @@ async def view_deck(request: Request, deck_id: int):
                 elif r['winner_id'] is not None:
                     running_elo -= 16  # Simplified K-factor loss
                 elo_history.append(round(running_elo, 1))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Elo history computation failed: %s", e)
         
     return templates.TemplateResponse("deck.html", {
         "request": request, "deck": deck, "matches": matches, 
@@ -1723,7 +1754,8 @@ async def flex_test(request: Request):
         body = await request.json()
         raw_core = body.get('core_decklist', '')
         raw_flex = body.get('flex_pool', '')
-    except Exception:
+    except Exception as e:
+        logger.debug("Failed to parse flex-test JSON body: %s", e)
         return JSONResponse({"error": "Invalid JSON mapping"}, status_code=400)
         
     core_cards = _parse_decklist(raw_core)
@@ -1752,7 +1784,8 @@ async def mana_calc(request: Request):
     try:
         body = await request.json()
         raw_decklist = body.get('decklist', '')
-    except Exception:
+    except Exception as e:
+        logger.debug("Failed to parse mana-calc JSON body: %s", e)
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
         
     deck_dict = _parse_decklist(raw_decklist)
@@ -2822,7 +2855,8 @@ async def get_card_coverage(limit: int = 100):
     try:
         cache = _get_card_search_cache()
         total_pool = len(cache)
-    except Exception:
+    except Exception as e:
+        logger.debug("Card search cache unavailable for coverage calc: %s", e)
         total_pool = len(card_deck_count)
     
     total_played = len(card_deck_count)
