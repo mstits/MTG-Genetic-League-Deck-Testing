@@ -467,6 +467,173 @@ class HeuristicAgent(BaseAgent):
         if c.etb_effect: bonus += 1
         return mana_efficiency + bonus
 
+    def _handle_pending_cast(self, game, player, opp, legal) -> dict | None:
+        """Handle the CR 601.2 casting state machine (choices, targeting, mana).
+        
+        Returns an action dict if a casting decision is made, or None to continue.
+        """
+        pc = game.pending_cast
+        if pc is None:
+            return None
+        card = pc.card
+        
+        if pc.state == 'choices':
+            kick_actions = [a for a in legal if a['type'] == 'choose_kicker']
+            if kick_actions and player.can_pay_cost(card.cost + card.kicker_cost, game):
+                return kick_actions[0]
+            
+            os_actions = [a for a in legal if a['type'] == 'choose_offspring']
+            if os_actions and player.can_pay_cost(card.cost + card.offspring_cost, game):
+                return os_actions[0]
+            
+            x_actions = [a for a in legal if a['type'] == 'choose_x']
+            if x_actions:
+                max_x = max(a['value'] for a in x_actions)
+                return next(a for a in x_actions if a['value'] == max_x)
+                
+            mode_actions = [a for a in legal if a['type'] == 'choose_mode']
+            if mode_actions:
+                return mode_actions[0]
+                
+            sac_actions = [a for a in legal if a['type'] in ('choose_sacrifice', 'choose_emerge')]
+            if sac_actions:
+                sac_actions.sort(key=lambda a: (a['target'].power or 0) + (a['target'].toughness or 0))
+                return sac_actions[0]
+            
+            return next(a for a in legal if a['type'] == 'done_choices')
+            
+        elif pc.state == 'targeting':
+            target_actions = [a for a in legal if a['type'] == 'declare_target']
+            if target_actions:
+                if card.is_removal or card.is_bounce:
+                    target_actions.sort(key=lambda a: getattr(a['target'], 'power', 0) if hasattr(a['target'], 'power') else 0, reverse=True)
+                    game.log_event(f"  → Targeting {getattr(target_actions[0]['target'], 'name', target_actions[0]['target'])} for removal")
+                    return target_actions[0]
+                elif card.is_burn:
+                    if opp.life <= 5:
+                        player_t = [a for a in target_actions if a['target'] == opp]
+                        if player_t: return player_t[0]
+                    target_actions.sort(key=lambda a: getattr(a['target'], 'power', 0) if hasattr(a['target'], 'power') else 0, reverse=True)
+                    return target_actions[0]
+                elif card.is_buff or card.is_aura:
+                    target_actions.sort(key=lambda a: getattr(a['target'], 'power', 0) if hasattr(a['target'], 'power') else 0, reverse=True)
+                    return target_actions[0]
+                else:
+                    return target_actions[0]
+            return next(a for a in legal if a['type'] == 'done_targeting')
+            
+        elif pc.state == 'mana':
+            pay_action = [a for a in legal if a['type'] == 'pay_costs']
+            if pay_action:
+                return pay_action[0]
+            mana_actions = [a for a in legal if a['type'] == 'activate_mana']
+            if mana_actions:
+                return mana_actions[0]
+            cancel = [a for a in legal if a['type'] == 'cancel_cast']
+            if cancel: return cancel[0]
+        
+        return None
+
+    def _handle_stack_response(self, game, player, opp, legal) -> dict | None:
+        """Respond to spells on the stack with instants, flash creatures, or abilities.
+        
+        Priority order: counter → instant removal → burn for lethal → combat trick
+        → flash creatures → end-step tap abilities → pass.
+        
+        Returns an action dict, or None if stack is empty.
+        """
+        if len(game.stack) == 0:
+            return None
+        
+        # Instants we can cast
+        instants = [a for a in legal if a['type'] == 'announce_cast' and 
+                   (a['card'].is_instant or a['card'].has_flash)]
+        
+        # Counter their spell?
+        counters = [a for a in instants if a['card'].is_counter]
+        if counters:
+            target = game.stack.cards[-1]
+            from engine.card import StackItem
+            if not isinstance(target, StackItem):
+                if target.is_creature and (target.base_power or 0) >= 3:
+                    game.log_event(f"  → {player.name} responds: countering {target.name} (big threat)")
+                    return counters[0]
+                if target.is_board_wipe:
+                    game.log_event(f"  → {player.name} responds: countering {target.name} (board wipe!)")
+                    return counters[0]
+                if target.is_removal:
+                    game.log_event(f"  → {player.name} responds: countering {target.name} (removal)")
+                    return counters[0]
+                if target.is_planeswalker:
+                    game.log_event(f"  → {player.name} responds: countering {target.name} (planeswalker)")
+                    return counters[0]
+                if target.is_burn and player.life <= 10:
+                    game.log_event(f"  → {player.name} responds: countering {target.name} (burn at low life)")
+                    return counters[0]
+        
+        # Instant-speed removal on threatening creature
+        removal_instants = [a for a in instants if a['card'].is_removal]
+        if removal_instants:
+            opp_creatures = [c for c in game.battlefield.cards 
+                            if c.controller != player and c.is_creature]
+            threats = [c for c in opp_creatures if (c.power or 0) >= 3]
+            if threats:
+                game.log_event(f"  → {player.name} responds: instant removal on threat")
+                return removal_instants[0]
+        
+        # Burn for lethal
+        burn_instants = [a for a in instants if a['card'].is_burn]
+        if burn_instants:
+            total_burn = sum(getattr(a['card'], 'damage_amount', 2) for a in burn_instants)
+            if total_burn >= opp.life:
+                game.log_event(f"  → {player.name} responds: burn for lethal ({total_burn} dmg vs {opp.life} life)")
+                return burn_instants[0]
+            if opp.life <= 8:
+                game.log_event(f"  → {player.name} responds: burn for pressure ({opp.life} life)")
+                return burn_instants[0]
+        
+        # Combat trick: buff during combat with lethal math
+        if game.current_phase in ('Declare Attackers', 'Declare Blockers', 
+                                   'First Strike Damage', 'Combat Damage',
+                                   'Attackers', 'Blockers'):
+            buff_instants = [a for a in instants if a['card'].is_buff]
+            if buff_instants:
+                my_attackers = [c for c in game.combat_attackers 
+                               if c.controller == player] if game.combat_attackers else []
+                attack_power = sum(max(0, c.power or 0) for c in my_attackers)
+                buff_power = getattr(buff_instants[0]['card'], 'etb_power', 2)
+                if attack_power + buff_power >= opp.life:
+                    game.log_event(f"  → {player.name} responds: lethal combat trick ({attack_power}+{buff_power} >= {opp.life})")
+                    return buff_instants[0]
+                if my_attackers:
+                    game.log_event(f"  → {player.name} responds: combat trick")
+                    return buff_instants[0]
+        
+        # Flash creatures as surprise blockers or at opponent's end step
+        flash_creatures = [a for a in instants if a['card'].is_creature and a['card'].has_flash]
+        if flash_creatures:
+            flash_creatures.sort(key=lambda a: (a['card'].base_power or 0), reverse=True)
+            if game.current_phase in ('Declare Attackers', 'Declare Blockers',
+                                       'Attackers', 'Blockers', 'Begin Combat'):
+                game.log_event(f"  → {player.name} responds: flash creature {flash_creatures[0]['card'].name} as blocker")
+                return flash_creatures[0]
+            is_opp_turn = game.active_player_index != game.players.index(player)
+            if is_opp_turn:
+                game.log_event(f"  → {player.name} responds: end-step flash {flash_creatures[0]['card'].name}")
+                return flash_creatures[0]
+        
+        # Instant-speed tap abilities during opponent's end step
+        if game.current_phase in ('End', 'Cleanup'):
+            tap_actions = [a for a in legal if a['type'] == 'tap_ability']
+            if tap_actions:
+                for ta in tap_actions:
+                    text = (ta['card'].oracle_text or '').lower()
+                    if 'draw' in text or 'damage' in text or 'create' in text or 'search' in text:
+                        game.log_event(f"  → {player.name} responds: end-step tap/search {ta['card'].name}")
+                        return ta
+        
+        return {'type': 'pass'}
+
     def get_action(self, game, player) -> dict:
         """Choose the best action using the priority-based heuristic system."""
         legal = game.get_legal_actions()
@@ -507,165 +674,14 @@ class HeuristicAgent(BaseAgent):
             self._logged_desperation_this_turn = False
 
         # --- PENDING CAST STATE MACHINE (CR 601.2) ---
-        if game.pending_cast:
-            pc = game.pending_cast
-            card = pc.card
-            
-            if pc.state == 'choices':
-                kick_actions = [a for a in legal if a['type'] == 'choose_kicker']
-                if kick_actions and player.can_pay_cost(card.cost + card.kicker_cost, game):
-                    return kick_actions[0]
-                
-                os_actions = [a for a in legal if a['type'] == 'choose_offspring']
-                if os_actions and player.can_pay_cost(card.cost + card.offspring_cost, game):
-                    return os_actions[0]
-                
-                x_actions = [a for a in legal if a['type'] == 'choose_x']
-                if x_actions:
-                    max_x = max(a['value'] for a in x_actions)
-                    return next(a for a in x_actions if a['value'] == max_x)
-                    
-                mode_actions = [a for a in legal if a['type'] == 'choose_mode']
-                if mode_actions:
-                    return mode_actions[0]
-                    
-                sac_actions = [a for a in legal if a['type'] in ('choose_sacrifice', 'choose_emerge')]
-                if sac_actions:
-                    sac_actions.sort(key=lambda a: (a['target'].power or 0) + (a['target'].toughness or 0))
-                    return sac_actions[0]
-                
-                return next(a for a in legal if a['type'] == 'done_choices')
-                
-            elif pc.state == 'targeting':
-                target_actions = [a for a in legal if a['type'] == 'declare_target']
-                if target_actions:
-                    if card.is_removal or card.is_bounce:
-                        target_actions.sort(key=lambda a: getattr(a['target'], 'power', 0) if hasattr(a['target'], 'power') else 0, reverse=True)
-                        game.log_event(f"  → Targeting {getattr(target_actions[0]['target'], 'name', target_actions[0]['target'])} for removal")
-                        return target_actions[0]
-                    elif card.is_burn:
-                        if opp.life <= 5:
-                            player_t = [a for a in target_actions if a['target'] == opp]
-                            if player_t: return player_t[0]
-                        target_actions.sort(key=lambda a: getattr(a['target'], 'power', 0) if hasattr(a['target'], 'power') else 0, reverse=True)
-                        return target_actions[0]
-                    elif card.is_buff or card.is_aura:
-                        target_actions.sort(key=lambda a: getattr(a['target'], 'power', 0) if hasattr(a['target'], 'power') else 0, reverse=True)
-                        return target_actions[0]
-                    else:
-                        return target_actions[0]
-                return next(a for a in legal if a['type'] == 'done_targeting')
-                
-            elif pc.state == 'mana':
-                pay_action = [a for a in legal if a['type'] == 'pay_costs']
-                if pay_action:
-                    return pay_action[0]
-                mana_actions = [a for a in legal if a['type'] == 'activate_mana']
-                if mana_actions:
-                    return mana_actions[0]
-                cancel = [a for a in legal if a['type'] == 'cancel_cast']
-                if cancel: return cancel[0]
+        pending_result = self._handle_pending_cast(game, player, opp, legal)
+        if pending_result is not None:
+            return pending_result
 
         # === STACK RESPONSE: When opponent cast a spell, we get priority ===
-        if len(game.stack) > 0:
-            # Check if WE have instants to respond with
-            instants = [a for a in legal if a['type'] == 'announce_cast' and 
-                       (a['card'].is_instant or a['card'].has_flash)]
-            
-            # Counter their spell?
-            counters = [a for a in instants if a['card'].is_counter]
-            if counters:
-                target = game.stack.cards[-1]
-                # Only counter actual spells, not triggered abilities
-                from engine.card import StackItem
-                if not isinstance(target, StackItem):
-                    # Counter high-value targets
-                    if target.is_creature and (target.base_power or 0) >= 3:
-                        game.log_event(f"  → {player.name} responds: countering {target.name} (big threat)")
-                        return counters[0]
-                    if target.is_board_wipe:
-                        game.log_event(f"  → {player.name} responds: countering {target.name} (board wipe!)")
-                        return counters[0]
-                    if target.is_removal:
-                        game.log_event(f"  → {player.name} responds: countering {target.name} (removal)")
-                        return counters[0]
-                    if target.is_planeswalker:
-                        game.log_event(f"  → {player.name} responds: countering {target.name} (planeswalker)")
-                        return counters[0]
-                    if target.is_burn and player.life <= 10:
-                        game.log_event(f"  → {player.name} responds: countering {target.name} (burn at low life)")
-                        return counters[0]
-            
-            # No meaningful response — pass to let stack resolve
-            
-            # Instant-speed removal: kill a threatening creature
-            removal_instants = [a for a in instants if a['card'].is_removal]
-            if removal_instants:
-                opp_creatures = [c for c in game.battlefield.cards 
-                                if c.controller != player and c.is_creature]
-                threats = [c for c in opp_creatures if (c.power or 0) >= 3]
-                if threats:
-                    game.log_event(f"  → {player.name} responds: instant removal on threat")
-                    return removal_instants[0]
-            
-            # Instant burn: calculate exact lethal across all available burn
-            burn_instants = [a for a in instants if a['card'].is_burn]
-            if burn_instants:
-                total_burn = sum(getattr(a['card'], 'damage_amount', 2) for a in burn_instants)
-                if total_burn >= opp.life:
-                    game.log_event(f"  → {player.name} responds: burn for lethal ({total_burn} dmg vs {opp.life} life)")
-                    return burn_instants[0]
-                # Also fire burn at low life for pressure
-                if opp.life <= 8:
-                    game.log_event(f"  → {player.name} responds: burn for pressure ({opp.life} life)")
-                    return burn_instants[0]
-            
-            # Combat trick: buff during combat with lethal math
-            if game.current_phase in ('Declare Attackers', 'Declare Blockers', 
-                                       'First Strike Damage', 'Combat Damage',
-                                       'Attackers', 'Blockers'):
-                buff_instants = [a for a in instants if a['card'].is_buff]
-                if buff_instants:
-                    # Check if buff would push attackers past lethal
-                    my_attackers = [c for c in game.combat_attackers 
-                                   if c.controller == player] if game.combat_attackers else []
-                    attack_power = sum(max(0, c.power or 0) for c in my_attackers)
-                    buff_power = getattr(buff_instants[0]['card'], 'etb_power', 2)
-                    if attack_power + buff_power >= opp.life:
-                        game.log_event(f"  → {player.name} responds: lethal combat trick ({attack_power}+{buff_power} >= {opp.life})")
-                        return buff_instants[0]
-                    # Otherwise still play buff if we have attacking creatures
-                    if my_attackers:
-                        game.log_event(f"  → {player.name} responds: combat trick")
-                        return buff_instants[0]
-            
-            # Flash creatures: deploy as surprise blockers or at opponent's end step
-            flash_creatures = [a for a in instants if a['card'].is_creature and a['card'].has_flash]
-            if flash_creatures:
-                # Sort by power — deploy biggest impact first
-                flash_creatures.sort(key=lambda a: (a['card'].base_power or 0), reverse=True)
-                # During combat — surprise blocker
-                if game.current_phase in ('Declare Attackers', 'Declare Blockers',
-                                           'Attackers', 'Blockers', 'Begin Combat'):
-                    game.log_event(f"  → {player.name} responds: flash creature {flash_creatures[0]['card'].name} as blocker")
-                    return flash_creatures[0]
-                # Deploy during any opponent turn phase that isn't their main
-                is_opp_turn = game.active_player_index != game.players.index(player)
-                if is_opp_turn:
-                    game.log_event(f"  → {player.name} responds: end-step flash {flash_creatures[0]['card'].name}")
-                    return flash_creatures[0]
-            
-            # Instant-speed tap abilities during opponent's end step
-            if game.current_phase in ('End', 'Cleanup'):
-                tap_actions = [a for a in legal if a['type'] == 'tap_ability']
-                if tap_actions:
-                    for ta in tap_actions:
-                        text = (ta['card'].oracle_text or '').lower()
-                        if 'draw' in text or 'damage' in text or 'create' in text or 'search' in text:
-                            game.log_event(f"  → {player.name} responds: end-step tap/search {ta['card'].name}")
-                            return ta
-            
-            return {'type': 'pass'}
+        stack_result = self._handle_stack_response(game, player, opp, legal)
+        if stack_result is not None:
+            return stack_result
 
         # 1. Blockers (If defending)
         for action in legal:
