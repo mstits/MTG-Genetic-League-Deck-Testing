@@ -34,7 +34,7 @@ class HeuristicAgent(BaseAgent):
         self.playstyle = playstyle
 
     # ── T1: Instant-Speed Hold-Up Intelligence ──────────────────────
-    def _should_hold_mana(self, game, player, role):
+    def _should_hold_mana(self, game, player, role) -> bool:
         """Decide if we should pass to hold mana open for instant-speed interaction.
         
         Returns True if holding mana is more valuable than casting sorcery-speed.
@@ -87,7 +87,7 @@ class HeuristicAgent(BaseAgent):
         return False
 
     # ── T5: Damage Clock / Racing Awareness ─────────────────────────
-    def _calculate_clock(self, game, player, opp):
+    def _calculate_clock(self, game, player, opp) -> tuple[int, int]:
         """Calculate damage clocks: how many turns to kill each player.
         
         Returns (my_clock, opp_clock) where lower = faster kill.
@@ -107,13 +107,13 @@ class HeuristicAgent(BaseAgent):
         return my_clock, opp_clock
 
     # ── T3: Artifact Synergy Awareness ─────────────────────────────
-    def _count_artifacts(self, game, player):
+    def _count_artifacts(self, game, player) -> int:
         """Count non-land artifacts controlled by player on the battlefield."""
         return sum(1 for c in game.battlefield.cards
                    if c.controller == player and 'Artifact' in (c.type_line or '')
                    and not c.is_land)
 
-    def _assess_role(self, game, player, opp):
+    def _assess_role(self, game, player, opp) -> str:
         """Determine our strategic role: 'aggro', 'control', or 'midrange'.
         
         Per Mike Flores' "Who's the Beatdown?" — identifying your role
@@ -207,7 +207,7 @@ class HeuristicAgent(BaseAgent):
         elif role_score <= -1: return 'control'
         return 'midrange'
 
-    def _evaluate_hidden_interaction(self, game, opp):
+    def _evaluate_hidden_interaction(self, game, opp) -> int:
         """Estimate the probability of opponent interaction based on open mana.
         
         Returns an integer threat score (0-15+). Higher = more likely the
@@ -260,7 +260,7 @@ class HeuristicAgent(BaseAgent):
     # easier to navigate.
 
     @staticmethod
-    def _score_land(action, next_turn_spells, hand_spells, in_play_colors, has_immediate_play, _re):
+    def _score_land(action, next_turn_spells, hand_spells, in_play_colors, has_immediate_play, _re) -> float:
         """Score a land action based on color-fixing, curve enablement, and ETB status."""
         land = action['card']
         produces = set(getattr(land, 'produces', []))
@@ -291,7 +291,7 @@ class HeuristicAgent(BaseAgent):
         return score
 
     @staticmethod
-    def _score_threat(c, game, role):
+    def _score_threat(c, game, role) -> float:
         """Score an opponent permanent for removal targeting — unified for all permanent types."""
         s = 0
         if c.is_creature:
@@ -344,7 +344,7 @@ class HeuristicAgent(BaseAgent):
         return s
 
     @staticmethod
-    def _score_removal(a, available_mana, other_castables):
+    def _score_removal(a, available_mana, other_castables) -> float:
         """Score removal spell value based on cost efficiency and follow-up potential."""
         r_cmc = Player._parse_cmc(a['card'].cost) if a['card'].cost else 0
         remaining = available_mana - r_cmc
@@ -358,7 +358,7 @@ class HeuristicAgent(BaseAgent):
         if getattr(a['card'], 'is_exile_removal', False): base = 1.5
         return base + followup_bonus
 
-    def _score_creature(self, action, game, player, role, available_mana, num_creatures):
+    def _score_creature(self, action, game, player, role, available_mana, num_creatures) -> float:
         """Evaluate creature value for casting based on stats, keywords, and mana curve fit."""
         c = action['card']
         cda = getattr(c, 'cda_type', '')
@@ -429,7 +429,7 @@ class HeuristicAgent(BaseAgent):
         return score
 
     @staticmethod
-    def _score_artifact(a, artifact_count):
+    def _score_artifact(a, artifact_count) -> float:
         """Score non-creature artifact spells for deployment priority."""
         c = a['card']
         s = 2.0
@@ -442,7 +442,7 @@ class HeuristicAgent(BaseAgent):
         return s
 
     @staticmethod
-    def _score_equip_target(action):
+    def _score_equip_target(action) -> float:
         """Score equip targets, prioritizing creatures with evasion or combat keywords."""
         target = action.get('target')
         if not target: return 0
@@ -456,7 +456,7 @@ class HeuristicAgent(BaseAgent):
         return s
 
     @staticmethod
-    def _score_spell(a, available_mana):
+    def _score_spell(a, available_mana) -> float:
         """Score non-creature spells based on mana efficiency and card type impact."""
         c = a['card']
         cmc = Player._parse_cmc(c.cost) if c.cost else 0
