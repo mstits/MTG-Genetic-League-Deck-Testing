@@ -71,13 +71,13 @@ DIV_CSS = {
 
 
 def _get_templates():
-    from web.app import templates
+    from web.cache import templates
     return templates
 
 
-def _get_card_search_cache():
-    from web.app import _get_card_search_cache
-    return _get_card_search_cache()
+def get_card_search_cache():
+    from web.cache import get_card_search_cache
+    return get_card_search_cache()
 
 
 # ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -224,7 +224,7 @@ async def get_leaderboard(request: Request, format: str = "html", limit: int = 5
         
         # Archetype classification — real analysis instead of name guessing
         from engine.archetype_classifier import classify_deck
-        cache = _get_card_search_cache() or []
+        cache = get_card_search_cache() or []
         card_pool_dict = {c['name']: c for c in cache} if isinstance(cache, list) else cache
         arch_info = classify_deck(decklist, card_pool_dict)
         arch_emoji = {"Aggro": "🗡️", "Control": "🛡️", "Combo": "⚡", "Midrange": "⚖️"}.get(arch_info['archetype'], "")

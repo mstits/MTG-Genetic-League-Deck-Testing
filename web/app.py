@@ -1,9 +1,12 @@
 """Web Dashboard — FastAPI application entry point.
 
-This module initialises the FastAPI app, CORS, Jinja2 templates,
-shared caches, WebSocket streaming, and wires in all route modules.
+This module initialises the FastAPI app, CORS, WebSocket streaming,
+and wires in all route modules.
 
-All endpoint implementations live in web/routes/:
+Shared state (templates, card-pool caches) lives in web/cache.py to
+avoid circular imports between app.py and route modules.
+
+Route modules (web/routes/):
     admin.py      — Admin portal, health, config, butterfly reports
     meta.py       — Matchup matrix, turn distribution, meta trends
     simulation.py — Test-deck, flex-test, mana-calc, gauntlet, salt
@@ -11,18 +14,20 @@ All endpoint implementations live in web/routes/:
     views.py      — Dashboard, leaderboard, top-cards, meta overview,
                      match history, stats, matchups, matches, replay
 
-Shared helpers live in web/helpers.py (rate limiter, decklist parser).
+Shared helpers: web/helpers.py (rate limiter, decklist parser)
+Shared caches:  web/cache.py  (templates, card pool, card search)
 """
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 import uvicorn
 import os
-import json
 import logging
 from data.db import get_db_connection
 from starlette.middleware.cors import CORSMiddleware
+
+# Shared state — accessed by route modules via `from web.cache import ...`
+from web.cache import templates, get_card_pool, get_card_search_cache  # noqa: F401
 
 app = FastAPI(title="MTG Genetic League", description="AI-powered deck evolution dashboard")
 
@@ -40,17 +45,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─── Templates ────────────────────────────────────────────────────────────────
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
-if not os.path.exists(TEMPLATES_DIR):
-    os.makedirs(TEMPLATES_DIR)
-
-templates = Jinja2Templates(directory=TEMPLATES_DIR)
-
-# Import canonical parse_cmc from optimizer (handles hybrid mana)
-from optimizer.genetic import parse_cmc  # noqa: E402
-
 # ─── Route Modules ────────────────────────────────────────────────────────────
 from web.routes.admin import router as admin_router       # noqa: E402
 from web.routes.meta import router as meta_router         # noqa: E402
@@ -65,71 +59,6 @@ app.include_router(decks_router)
 app.include_router(views_router)
 
 
-# ─── Shared Caches ────────────────────────────────────────────────────────────
-# These are imported by route modules via `from web.app import _get_card_pool`
-
-_card_pool_cache = None
-
-
-def _get_card_pool():
-    """Load the full card pool once and cache at module level. Thread-safe via GIL."""
-    global _card_pool_cache
-    if _card_pool_cache is not None:
-        return _card_pool_cache
-
-    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    cp_path = os.path.join(base, 'data', 'legal_cards.json')
-    if not os.path.exists(cp_path):
-        cp_path = os.path.join(base, 'data', 'processed_cards.json')
-
-    card_pool = {}
-    with open(cp_path) as f:
-        for c in json.load(f):
-            name = c.get('name', '')
-            card_pool[name] = c
-            if ' // ' in name:
-                front_face = name.split(' // ')[0].strip()
-                if front_face not in card_pool:
-                    card_pool[front_face] = c
-
-    from engine.card_builder import inject_basic_lands
-    inject_basic_lands(card_pool)
-
-    _card_pool_cache = card_pool
-    logger.info("Card pool cached: %d cards", len(card_pool))
-    return card_pool
-
-
-_card_search_cache = None
-
-
-def _get_card_search_cache():
-    """Load card names/metadata once for autocomplete. Thread-safe via GIL."""
-    global _card_search_cache
-    if _card_search_cache is not None:
-        return _card_search_cache
-
-    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    cp_path = os.path.join(base, 'data', 'legal_cards.json')
-    if not os.path.exists(cp_path):
-        cp_path = os.path.join(base, 'data', 'processed_cards.json')
-    with open(cp_path) as f:
-        raw = json.load(f)
-
-    _card_search_cache = []
-    for c in raw:
-        name = c.get('name', '')
-        _card_search_cache.append({
-            'name': name,
-            'name_lower': name.lower(),
-            'mana_cost': c.get('mana_cost', ''),
-            'type_line': c.get('type_line', ''),
-            'colors': c.get('colors', []),
-            'cmc': c.get('cmc', 0),
-        })
-    return _card_search_cache
-
-
 # ─── Health Check ─────────────────────────────────────────────────────────────
 
 @app.get("/health", response_class=JSONResponse)
@@ -140,6 +69,7 @@ async def health_check():
         JSON with service status, DB connectivity, and cache state.
         200 if healthy, 503 if DB is unreachable.
     """
+    from web.cache import _card_pool_cache  # noqa: F401
     status = {"service": "ok", "db": "unknown", "card_pool_cached": _card_pool_cache is not None}
     http_code = 200
     try:

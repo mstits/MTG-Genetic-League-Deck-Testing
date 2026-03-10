@@ -185,20 +185,20 @@ class TestCORSRestriction:
 
 class TestCardPoolCache:
     def test_card_pool_cache_exists(self):
-        """_card_pool_cache should be defined at module level."""
+        """_card_pool_cache should be defined in web/cache.py."""
         # Import the module and check
         import importlib
         spec = importlib.util.spec_from_file_location(
-            "web_app", 
-            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'web', 'app.py')
+            "web_cache", 
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'web', 'cache.py')
         )
         # Just verify the function exists in the source
-        app_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                'web', 'app.py')
-        with open(app_path) as f:
+        cache_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                'web', 'cache.py')
+        with open(cache_path) as f:
             source = f.read()
-        assert '_card_pool_cache' in source, "Module-level card pool cache should exist"
-        assert 'def _get_card_pool()' in source, "Card pool getter function should exist"
+        assert '_card_pool_cache' in source, "Module-level card pool cache should exist in web/cache.py"
+        assert 'def get_card_pool()' in source, "Card pool getter function should exist in web/cache.py"
 
 
 # ─── Fix #3: Generic Error Response ──────────────────────────────

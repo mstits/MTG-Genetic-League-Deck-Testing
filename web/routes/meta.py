@@ -260,8 +260,8 @@ async def get_card_coverage(limit: int = 100):
 
     # Get total card pool size from card search cache
     try:
-        from web.app import _get_card_search_cache
-        cache = _get_card_search_cache()
+        from web.cache import get_card_search_cache
+        cache = get_card_search_cache()
         total_pool = len(cache)
     except Exception as e:
         logger.debug("Card search cache unavailable for coverage calc: %s", e)

@@ -32,14 +32,14 @@ router = APIRouter(tags=["admin"])
 @router.get("/admin", response_class=HTMLResponse)
 async def admin_portal(request: Request):
     """Main Admin Portal UI — engine config, health dashboards, and butterfly maps."""
-    from web.app import templates
+    from web.cache import templates
     return templates.TemplateResponse("admin.html", {"request": request})
 
 
 @router.get("/admin/butterfly", response_class=HTMLResponse)
 async def butterfly_dashboard(request: Request):
     """Admin UI for viewing Misplay Hunter butterfly maps (what-if analysis)."""
-    from web.app import templates
+    from web.cache import templates
     return templates.TemplateResponse("butterfly.html", {"request": request})
 
 

@@ -76,7 +76,7 @@ def _parse_cmc(mana_cost: str) -> int:
 _card_search_cache = None
 
 
-def _get_card_search_cache():
+def get_card_search_cache():
     """Build and cache a lightweight card index for autocomplete.
     
     Each entry has: name, name_lower, mana_cost, type_line, colors, cmc.
@@ -113,7 +113,7 @@ async def view_deck(request: Request, deck_id: int):
     per-card win rates, Game 1 stats, recent match history, matchup spread by
     opponent archetype, and ELO trajectory chart.
     """
-    from web.app import templates
+    from web.cache import templates
     card_pool = _load_card_pool()
 
     with get_db_connection() as conn:
@@ -484,7 +484,7 @@ async def search_cards(q: str = ""):
     if not q or len(q) < 2:
         return JSONResponse([])
     query = q.lower()
-    cache = _get_card_search_cache()
+    cache = get_card_search_cache()
     prefix = []
     substring = []
     for card in cache:
@@ -517,7 +517,7 @@ async def browse_decks(request: Request, page: int = 1, active: int = None,
         colors: exact color string match (e.g. 'WU')
         division: division tier filter
     """
-    from web.app import templates
+    from web.cache import templates
     page_size = 50
     offset = (page - 1) * page_size
 
@@ -570,7 +570,7 @@ async def browse_decks(request: Request, page: int = 1, active: int = None,
 @router.get("/season/{season_id}", response_class=HTMLResponse)
 async def view_season(request: Request, season_id: int):
     """Render the season detail page showing top performer and match count."""
-    from web.app import templates
+    from web.cache import templates
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
@@ -615,7 +615,7 @@ async def view_lineage(request: Request, deck_id: int):
     Traverses up to 5 ancestor generations and 1 child generation to build
     a directed graph showing the deck's evolutionary history.
     """
-    from web.app import templates
+    from web.cache import templates
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
@@ -778,7 +778,7 @@ async def view_match(request: Request, match_id: int):
     Shows deck information for both players, game result, turn count,
     and the full game log (from log file or DB summary).
     """
-    from web.app import templates, BASE_DIR
+    from web.cache import templates, BASE_DIR
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''

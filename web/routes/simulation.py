@@ -91,8 +91,8 @@ async def test_deck(request: Request):
         total_cards = sum(cards.values())
 
         # Load card pool from module-level cache in app.py
-        from web.app import _get_card_pool
-        card_pool = _get_card_pool()
+        from web.cache import get_card_pool
+        card_pool = get_card_pool()
 
         # Validate cards against the pool
         valid = {}
@@ -336,8 +336,8 @@ async def mana_calc(request: Request):
         return JSONResponse({"error": "Empty or invalid decklist."}, status_code=400)
 
     # Use module-level cached card pool (loaded once, not from disk per-request)
-    from web.app import _get_card_pool
-    card_pool = _get_card_pool()
+    from web.cache import get_card_pool
+    card_pool = get_card_pool()
 
     from utils.hypergeometric import evaluate_deck_mana
     try:
@@ -374,10 +374,10 @@ async def evaluate_mulligan(req: MulliganRequest):
 
     from engine.deck import Deck
     from engine.card_builder import dict_to_card
-    from web.app import _get_card_search_cache
+    from web.cache import get_card_search_cache
 
     deck = Deck()
-    cache = _get_card_search_cache()
+    cache = get_card_search_cache()
     pool = {c['name']: c for c in cache}
 
     decklist = json.loads(row['card_list'])
