@@ -9,7 +9,7 @@ The MTG Genetic League evolves decks through natural selection — populations o
 ## What It Does
 
 | For MTG Players | For Engineers |
-|---|---|
+| --- | --- |
 | Test your deck against evolved meta opponents | Full MTG rules engine with 348+ automated tests |
 | View matchup spread, win rates, and metagame trends | Genetic algorithm with novelty-search fitness |
 | Export decklists to Arena/MTGO format with sideboard | Distributed simulation via Redis + PostgreSQL |
@@ -20,13 +20,13 @@ The MTG Genetic League evolves decks through natural selection — populations o
 
 ## Screenshots
 
-| Dashboard & Leaderboard | Metagame Analytics |
-|:-:|:-:|
-| ![Dashboard](docs/images/dashboard.png) | ![Meta Analysis](docs/images/meta_trends.png) |
+| Dashboard & Leaderboard                                         | Metagame Analytics                                              |
+| :-------------------------------------------------------------: | :-------------------------------------------------------------: |
+| ![Dashboard](docs/images/dashboard.png)                         | ![Meta Analysis](docs/images/meta_trends.png)                   |
 
-| Deck Detail | Test Your Deck |
-|:-:|:-:|
-| ![Deck Detail](docs/images/deck_detail.png) | ![Test Your Deck](docs/images/test_deck.png) |
+| Deck Detail                                                     | Test Your Deck                                                  |
+| :-------------------------------------------------------------: | :-------------------------------------------------------------: |
+| ![Deck Detail](docs/images/deck_detail.png)                     | ![Test Your Deck](docs/images/test_deck.png)                    |
 
 > **New here?** Check out the **[Getting Started Guide](docs/GETTING_STARTED.md)** for a walkthrough of every feature.
 
@@ -112,7 +112,7 @@ docker-compose up -d --build
 
 ## Project Structure
 
-```
+```text
 engine/              Core MTG rules engine
 ├── game.py          Game loop, phases, stack, combat, SBAs (2,700+ lines)
 ├── card.py          Card model with Oracle text parser (4,800+ lines)
@@ -163,7 +163,7 @@ tests/               348+ automated tests
 ### MTG Rules Coverage
 
 | Category | Implementation |
-|----------|--------------|
+| --- | --- |
 | **Turn Structure** | Untap → Upkeep → Draw → Main 1 → Combat → Main 2 → End → Cleanup |
 | **Mana System** | 5 colors + colorless + generic, backtracking payment solver, hybrid costs |
 | **Stack** | LIFO resolution, dual-pass priority, instant-speed responses |
@@ -194,7 +194,7 @@ Role detection (aggro/midrange/control) adjusts every decision contextually.
 ## REST API
 
 | Endpoint | Method | Description |
-|----------|--------|-------------|
+| --- | --- | --- |
 | `/api/leaderboard` | GET | Ranked deck listings with ELO and division |
 | `/api/top-cards` | GET | Cards with highest win rates |
 | `/api/meta` | GET | Color, archetype, and synergy breakdown |
@@ -234,7 +234,7 @@ python -m pytest tests/test_tier4.py -v  # Planeswalker tests
 python -m pytest tests/ --cov=engine --cov-report=term-missing
 ```
 
-**Current: 348 passed, 0 failed, 1 skipped**
+### Current: 348 passed, 0 failed, 1 skipped
 
 Test tiers:
 
@@ -254,7 +254,7 @@ Test tiers:
 Decks are rated using the [Elo rating system](https://en.wikipedia.org/wiki/Elo_rating_system) with **K-factor decay**:
 
 | Games Played | K-Factor | Behavior |
-|-------------|----------|----------|
+| --- | --- | --- |
 | < 10 | 40 | Fast rating discovery for new decks |
 | 10–30 | 24 | Moderate adjustments |
 | 30+ | 12 | Stable rankings for veterans |

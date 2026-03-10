@@ -55,6 +55,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ─── Route Modules ────────────────────────────────────────────────────────────
+# Extracted from this monolith into logical groups (see web/routes/)
+from web.routes.admin import router as admin_router
+from web.routes.meta import router as meta_router
+app.include_router(admin_router)
+app.include_router(meta_router)
+
 
 @app.get("/health", response_class=JSONResponse)
 async def health_check():
@@ -2379,120 +2386,7 @@ async def api_matchup_matrix():
     
     return JSONResponse({"archetypes": archetypes, "matrix": matrix})
 
-
-@app.get("/api/turn-distribution", response_class=JSONResponse)
-async def api_turn_distribution():
-    """Histogram of game lengths (turns) across all matches."""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT turns, COUNT(*) as count
-            FROM matches
-            WHERE turns IS NOT NULL AND turns > 0
-            GROUP BY turns
-            ORDER BY turns ASC
-        ''')
-        rows = [dict(r) for r in cursor.fetchall()]
-    
-    # Bucket into ranges for cleaner display
-    buckets = {}
-    for r in rows:
-        t = r['turns']
-        if t <= 5:
-            key = "1-5"
-        elif t <= 8:
-            key = "6-8"
-        elif t <= 11:
-            key = "9-11"
-        elif t <= 14:
-            key = "12-14"
-        elif t <= 18:
-            key = "15-18"
-        else:
-            key = "19+"
-        buckets[key] = buckets.get(key, 0) + r['count']
-    
-    # Maintain order
-    ordered_keys = ["1-5", "6-8", "9-11", "12-14", "15-18", "19+"]
-    distribution = [{"range": k, "count": buckets.get(k, 0)} for k in ordered_keys]
-    total = sum(b['count'] for b in distribution)
-    avg_turns = sum(r['turns'] * r['count'] for r in rows) / max(total, 1) if rows else 0
-    
-    return JSONResponse({
-        "distribution": distribution,
-        "total_games": total,
-        "avg_turns": round(avg_turns, 1)
-    })
-
-
-@app.get("/api/meta-trends", response_class=JSONResponse)
-async def api_meta_trends():
-    """Retrieve historical archetype popularity AND win rates aggregated by season."""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        
-        # Popularity: count unique decks per archetype per season
-        cursor.execute('''
-            SELECT m.season_id, d.archetype, COUNT(DISTINCT d.id) as deck_count
-            FROM matches m
-            JOIN decks d ON (m.deck1_id = d.id OR m.deck2_id = d.id)
-            WHERE m.season_id IS NOT NULL AND d.archetype != 'Unknown'
-            GROUP BY m.season_id, d.archetype
-            ORDER BY m.season_id ASC
-        ''')
-        pop_rows = cursor.fetchall()
-        
-        # Win rates: average win rate per archetype per season
-        cursor.execute('''
-            SELECT m.season_id, d.archetype,
-                   COUNT(*) as total_games,
-                   SUM(CASE WHEN m.winner_id = d.id THEN 1 ELSE 0 END) as wins
-            FROM matches m
-            JOIN decks d ON (m.deck1_id = d.id OR m.deck2_id = d.id)
-            WHERE m.season_id IS NOT NULL AND d.archetype != 'Unknown'
-            GROUP BY m.season_id, d.archetype
-            ORDER BY m.season_id ASC
-        ''')
-        wr_rows = cursor.fetchall()
-    
-    seasons = sorted(list(set(r['season_id'] for r in pop_rows))) if pop_rows else []
-    
-    # Popularity series
-    archetypes = {}
-    for r in pop_rows:
-        arch = r['archetype']
-        if arch not in archetypes:
-            archetypes[arch] = {s: 0 for s in seasons}
-        archetypes[arch][r['season_id']] = r['deck_count']
-        
-    series = []
-    for arch, counts_by_season in archetypes.items():
-        data = [counts_by_season[s] for s in seasons]
-        series.append({"name": arch, "data": data})
-    
-    # Win rate series
-    wr_archetypes = {}
-    for r in wr_rows:
-        arch = r['archetype']
-        if arch not in wr_archetypes:
-            wr_archetypes[arch] = {s: {'wins': 0, 'total': 0} for s in seasons}
-        wr_archetypes[arch][r['season_id']]['wins'] += r['wins']
-        wr_archetypes[arch][r['season_id']]['total'] += r['total_games']
-    
-    win_rate_series = []
-    for arch, data_by_season in wr_archetypes.items():
-        wr_data = []
-        for s in seasons:
-            total = data_by_season[s]['total']
-            wr = round(data_by_season[s]['wins'] / total * 100, 1) if total > 0 else 0
-            wr_data.append(wr)
-        win_rate_series.append({"name": arch, "data": wr_data})
-        
-    return JSONResponse({
-        "categories": [f"S{s}" for s in seasons],
-        "series": series,
-        "win_rate_series": win_rate_series
-    })
+# ─── Turn distribution & meta trends — now in web/routes/meta.py ─────────────
 
 
 @app.get("/matches", response_class=HTMLResponse)
@@ -2664,99 +2558,7 @@ async def get_salt_score(request: Request):
 
 from data.db import get_hall_of_fame
 
-@app.get("/admin", response_class=HTMLResponse)
-async def admin_portal(request: Request):
-    """Main Admin Portal UI."""
-    return templates.TemplateResponse("admin.html", {"request": request})
-
-@app.get("/api/admin/health")
-async def get_admin_health():
-    """Live Health Check - Rules Coverage %."""
-    from engine.rules_sandbox import SCENARIO_REGISTRY
-    tested = len(SCENARIO_REGISTRY)
-    total = max(tested, 1)  # Use actual registry size as denominator
-    coverage = min((tested / total) * 100, 100.0)  # Cap at 100%
-    return {
-        "coverage_percent": round(coverage, 1),
-        "tested_interactions": tested,
-        "total_scenarios": total
-    }
-
-@app.post("/api/admin/restart")
-async def admin_restart():
-    """Restart the Sovereign simulation as a background process."""
-    import subprocess
-    import sys
-    
-    project_root = os.path.dirname(BASE_DIR)
-    venv_python = os.path.join(project_root, '.venv', 'bin', 'python')
-    sovereign_script = os.path.join(project_root, 'sovereign.py')
-    
-    try:
-        subprocess.Popen(
-            [venv_python, sovereign_script],
-            cwd=project_root,
-            stdout=open(os.path.join(project_root, 'data', 'sovereign_stdout.log'), 'w'),
-            stderr=subprocess.STDOUT,
-        )
-        return {"status": "ok", "message": "Sovereign simulation restarted in background."}
-    except Exception as e:
-        logger.exception("Failed to restart sovereign")
-        return JSONResponse({"status": "error", "message": "Failed to restart simulation."}, status_code=500)
-
-@app.post("/api/admin/reset-elo")
-async def admin_reset_elo():
-    """Reset all deck ELO ratings to 1200."""
-    try:
-        from data.db import get_db_connection
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("UPDATE decks SET elo = 1200")
-        conn.commit()
-        affected = cursor.rowcount
-        conn.close()
-        return {"status": "ok", "message": f"Reset {affected} decks to ELO 1200."}
-    except Exception as e:
-        logger.exception("Failed to reset ELO")
-        return JSONResponse({"status": "error", "message": "Failed to reset ELO ratings."}, status_code=500)
-
-@app.get("/admin/butterfly", response_class=HTMLResponse)
-async def butterfly_dashboard(request: Request):
-    """Admin UI for viewing Misplay Hunter butterfly maps."""
-    return templates.TemplateResponse("butterfly.html", {"request": request})
-
-@app.get("/api/butterfly-reports")
-async def get_butterfly_reports():
-    """Retrieve all Misplay Hunter reports."""
-    from engine.misplay_hunter import BUTTERFLY_REPORTS_FILE
-    
-    if not os.path.exists(BUTTERFLY_REPORTS_FILE):
-        return []
-        
-    with open(BUTTERFLY_REPORTS_FILE, "r") as f:
-        data = json.load(f)
-        
-    # Enrich with deck names
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        for report in data:
-            cursor.execute('SELECT name FROM decks WHERE id = %s', (report['deck1_id'],))
-            d1 = cursor.fetchone()
-            report['deck1_name'] = d1['name'] if d1 else f"Deck {report['deck1_id']}"
-            
-            cursor.execute('SELECT name FROM decks WHERE id = %s', (report['deck2_id'],))
-            d2 = cursor.fetchone()
-            report['deck2_name'] = d2['name'] if d2 else f"Deck {report['deck2_id']}"
-            
-    # Sort newest first
-    data.sort(key=lambda x: x['timestamp'], reverse=True)
-    return data
-
-@app.get("/api/hall-of-fame")
-async def get_hall_of_fame_api(limit: int = 50):
-    """Get the all-time greatest evolved decks."""
-    inductees = get_hall_of_fame(limit)
-    return {"inductees": inductees, "total": len(inductees)}
+# ─── Admin endpoints — now in web/routes/admin.py ─────────────────────────────
 
 @app.get("/api/match/{match_id}")
 async def get_match_api(match_id: int):
@@ -2821,86 +2623,10 @@ async def get_match_api(match_id: int):
     }
 
 
-# ─── Feature: Card Pool Coverage Report ─────────────────────────────────
-
-@app.get("/api/card-coverage")
-async def get_card_coverage(limit: int = 100):
-    """Report showing which cards from the pool are actually played in active decks.
-    Returns play rates for each card (percent of active decks using it)."""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        
-        # Count active decks
-        cursor.execute("SELECT COUNT(*) as c FROM decks WHERE active = TRUE")
-        total_decks = cursor.fetchone()['c']
-        
-        if total_decks == 0:
-            return {"total_pool": 0, "total_played": 0, "coverage_percent": 0, "cards": []}
-        
-        # Get all card lists from active decks
-        cursor.execute("SELECT card_list FROM decks WHERE active = TRUE")
-        rows = cursor.fetchall()
-    
-    card_deck_count = {}  # card_name -> number of decks using it
-    for row in rows:
-        card_list = json.loads(row['card_list'])
-        if isinstance(card_list, list):
-            unique_cards = set(card_list)
-        else:
-            unique_cards = set(card_list.keys())
-        for name in unique_cards:
-            card_deck_count[name] = card_deck_count.get(name, 0) + 1
-    
-    # Get total card pool size
-    try:
-        cache = _get_card_search_cache()
-        total_pool = len(cache)
-    except Exception as e:
-        logger.debug("Card search cache unavailable for coverage calc: %s", e)
-        total_pool = len(card_deck_count)
-    
-    total_played = len(card_deck_count)
-    coverage_pct = round(total_played / max(1, total_pool) * 100, 1)
-    
-    # Sort by play rate descending
-    sorted_cards = sorted(card_deck_count.items(), key=lambda x: x[1], reverse=True)[:limit]
-    cards = [{"name": name, "decks_using": count, 
-              "play_rate": round(count / total_decks * 100, 1)}
-             for name, count in sorted_cards]
-    
-    return {
-        "total_pool": total_pool,
-        "total_played": total_played,
-        "coverage_percent": coverage_pct,
-        "total_active_decks": total_decks,
-        "cards": cards
-    }
+# ─── Card coverage — now in web/routes/meta.py ────────────────────────────────
 
 
-# ─── Engine Configuration API ────────────────────────────────────────────────
-
-from engine.engine_config import config as engine_config
-
-@app.get("/api/config")
-async def get_config():
-    """Return current engine configuration."""
-    return JSONResponse(engine_config.to_dict())
-
-@app.post("/api/config")
-async def update_config(request: Request):
-    """Update engine configuration values."""
-    try:
-        body = await request.json()
-        engine_config.update_from_dict(body)
-        return JSONResponse({"status": "ok", "config": engine_config.to_dict()})
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
-
-@app.get("/api/error-budget")
-async def get_error_budget():
-    """Return current error budget status for monitoring."""
-    from simulation.runner import get_error_budget_status
-    return JSONResponse(get_error_budget_status())
+# ─── Engine Configuration — now in web/routes/admin.py ────────────────────────
 
 
 if __name__ == "__main__":

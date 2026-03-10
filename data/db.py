@@ -148,12 +148,47 @@ def _pg_to_sqlite(sql: str) -> str:
     return sql
 
 
+# ─── Connection Pool ──────────────────────────────────────────────────────────
+# ThreadedConnectionPool reuses PG connections across requests instead of
+# opening/closing on every query. Min=2 idle connections, max=10 under load.
+_pg_pool = None  # Lazy-initialized on first successful PG connection
+
+
+def _get_or_create_pool():
+    """Lazily create a ThreadedConnectionPool for PostgreSQL.
+    
+    Returns the pool if PG is available, None otherwise.
+    Thread-safe: worst case is two threads both create a pool on startup,
+    but the GIL ensures the global assignment is atomic.
+    """
+    global _pg_pool
+    if _pg_pool is not None:
+        return _pg_pool
+    try:
+        from psycopg2.pool import ThreadedConnectionPool
+        _pg_pool = ThreadedConnectionPool(
+            minconn=2,
+            maxconn=10,
+            dsn=DATABASE_URL,
+        )
+        logger.info("PostgreSQL connection pool created (min=2, max=10)")
+        return _pg_pool
+    except Exception as e:
+        logger.debug("Could not create PG pool: %s", e)
+        return None
+
+
 @contextmanager
 def get_db_connection():
-    """Yield a database connection handling psycopg2/sqlite3 failover transparently.
+    """Yield a database connection with PostgreSQL pooling and SQLite fallback.
     
-    Failover recovery: if PG goes down, retries every 5 minutes instead of
-    permanently latching to SQLite.
+    Connection lifecycle:
+    1. Try to get a connection from the ThreadedConnectionPool (PG)
+    2. If PG fails, fall back to SQLite at data/league.db
+    3. PG recovery is retried every 5 minutes after a failover
+    
+    The connection is automatically returned to the pool (PG) or closed (SQLite)
+    when the context manager exits.
     """
     global _use_sqlite, _pg_retry_after
     
@@ -162,42 +197,49 @@ def get_db_connection():
                      (_use_sqlite is True and time.time() >= _pg_retry_after))
     
     if should_try_pg:
-        try:
-            import psycopg2
-            import psycopg2.extras
-            conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.DictCursor)
-            conn.autocommit = False
-            if _use_sqlite is not False:
-                logger.info("Connected to PostgreSQL%s", 
-                           " (recovered from SQLite failover)" if _use_sqlite else "")
-            _use_sqlite = False
+        pool = _get_or_create_pool()
+        if pool is not None:
             try:
-                yield conn
-            finally:
-                conn.close()
-            return
-        except Exception as e:
+                conn = pool.getconn()
+                conn.autocommit = False
+                if _use_sqlite is not False:
+                    logger.info("Connected to PostgreSQL%s (pooled)", 
+                               " (recovered from SQLite failover)" if _use_sqlite else "")
+                _use_sqlite = False
+                try:
+                    yield conn
+                finally:
+                    pool.putconn(conn)  # Return to pool, don't close
+                return
+            except Exception as e:
+                if _use_sqlite is None:
+                    logger.warning("PostgreSQL unavailable (%s), falling back to SQLite at %s", e, _SQLITE_PATH)
+                _use_sqlite = True
+                _pg_retry_after = time.time() + _PG_RETRY_INTERVAL
+                _pg_pool = None  # Reset pool so it's recreated on next retry
+        else:
             if _use_sqlite is None:
-                logger.warning("PostgreSQL unavailable (%s), falling back to SQLite at %s", e, _SQLITE_PATH)
+                logger.warning("PostgreSQL pool unavailable, falling back to SQLite at %s", _SQLITE_PATH)
             _use_sqlite = True
             _pg_retry_after = time.time() + _PG_RETRY_INTERVAL
     
     if _use_sqlite is False:
-        # PostgreSQL mode (confirmed working)
-        try:
-            import psycopg2
-            import psycopg2.extras
-            conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.DictCursor)
-            conn.autocommit = False
+        # PostgreSQL mode (confirmed working) — use pool
+        pool = _get_or_create_pool()
+        if pool is not None:
             try:
-                yield conn
-            finally:
-                conn.close()
-            return
-        except Exception:
-            logger.warning("PostgreSQL connection lost, failing over to SQLite")
-            _use_sqlite = True
-            _pg_retry_after = time.time() + _PG_RETRY_INTERVAL
+                conn = pool.getconn()
+                conn.autocommit = False
+                try:
+                    yield conn
+                finally:
+                    pool.putconn(conn)
+                return
+            except Exception:
+                logger.warning("PostgreSQL connection lost, failing over to SQLite")
+                _use_sqlite = True
+                _pg_retry_after = time.time() + _PG_RETRY_INTERVAL
+                _pg_pool = None
     
     # SQLite mode
     conn = SQLiteConnection(_SQLITE_PATH)
