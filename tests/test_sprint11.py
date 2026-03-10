@@ -160,5 +160,122 @@ class TestHeuristicAgentExtractedMethods:
         assert result is None
 
 
+# ─── Strategic Agent Scoring Functions ────────────────────────────────────────
+
+class TestStrategicAgentScoring:
+    """Tests for StrategicAgent's 4-dimension scoring system."""
+
+    def _make_game(self):
+        from engine.card import Card
+        from engine.deck import Deck
+        from engine.player import Player
+        from engine.game import Game
+
+        land = Card(name="Mountain", cost="", type_line="Basic Land - Mountain")
+        d1 = Deck()
+        d1.add_card(land, 40)
+        d2 = Deck()
+        d2.add_card(land, 40)
+        game = Game([Player("P1", d1), Player("P2", d2)])
+        game.start_game()
+        return game
+
+    def test_board_power_empty(self):
+        """Board power with no creatures should be 0."""
+        from agents.strategic_agent import StrategicAgent
+        game = self._make_game()
+        score = StrategicAgent._board_power(game, game.players[0])
+        assert score == 0.0
+
+    def test_board_power_with_creature(self):
+        """Board power should increase when a creature is on the battlefield."""
+        from agents.strategic_agent import StrategicAgent
+        from engine.card import Card
+        game = self._make_game()
+        creature = Card(name="Grizzly Bears", cost="{1}{G}", type_line="Creature — Bear",
+                       base_power=2, base_toughness=2)
+        creature.controller = game.players[0]
+        game.battlefield.add(creature)
+        score = StrategicAgent._board_power(game, game.players[0])
+        assert score > 0.0
+
+    def test_tempo_pass_is_zero(self):
+        """Passing should have 0 tempo score."""
+        from agents.strategic_agent import StrategicAgent
+        agent = StrategicAgent()
+        game = self._make_game()
+        score = agent._evaluate_tempo(game, game.players[0], {'type': 'pass'})
+        assert score == 0.0
+
+    def test_card_cmc_parsing(self):
+        """_card_cmc should correctly parse mana costs."""
+        from agents.strategic_agent import StrategicAgent
+        from engine.card import Card
+        bolt = Card(name="Lightning Bolt", cost="{R}", type_line="Instant")
+        assert StrategicAgent._card_cmc(bolt) == 1
+        wrath = Card(name="Wrath of God", cost="{2}{W}{W}", type_line="Sorcery")
+        assert StrategicAgent._card_cmc(wrath) == 4
+
+
+# ─── Heuristic Agent Scoring & Role Detection ────────────────────────────────
+
+class TestHeuristicAgentScoring:
+    """Tests for HeuristicAgent's scoring and role detection methods."""
+
+    def _make_game(self):
+        from engine.card import Card
+        from engine.deck import Deck
+        from engine.player import Player
+        from engine.game import Game
+
+        land = Card(name="Mountain", cost="", type_line="Basic Land - Mountain")
+        d1 = Deck()
+        d1.add_card(land, 40)
+        d2 = Deck()
+        d2.add_card(land, 40)
+        game = Game([Player("P1", d1), Player("P2", d2)])
+        game.start_game()
+        return game
+
+    def test_assess_role_returns_valid_string(self):
+        """_assess_role should return 'aggro', 'control', or 'midrange'."""
+        from agents.heuristic_agent import HeuristicAgent
+        agent = HeuristicAgent()
+        game = self._make_game()
+        role = agent._assess_role(game, game.players[0], game.players[1])
+        assert role in ('aggro', 'control', 'midrange')
+
+    def test_count_artifacts_empty(self):
+        """_count_artifacts should return 0 with no artifacts on board."""
+        from agents.heuristic_agent import HeuristicAgent
+        agent = HeuristicAgent()
+        game = self._make_game()
+        count = agent._count_artifacts(game, game.players[0])
+        assert count == 0
+
+    def test_score_threat_creature(self):
+        """_score_threat should return a positive score for creatures."""
+        from agents.heuristic_agent import HeuristicAgent
+        from engine.card import Card
+        game = self._make_game()
+        creature = Card(name="Tarmogoyf", cost="{1}{G}",
+                       type_line="Creature — Lhurgoyf",
+                       base_power=4, base_toughness=5)
+        score = HeuristicAgent._score_threat(creature, game, 'midrange')
+        assert score > 0
+
+    def test_evaluate_hidden_interaction_no_lands(self):
+        """With no untapped opponent lands, interaction risk should be 0."""
+        from agents.heuristic_agent import HeuristicAgent
+        agent = HeuristicAgent()
+        game = self._make_game()
+        # Tap all opponent lands
+        for c in game.battlefield.cards:
+            if c.controller == game.players[1] and c.is_land:
+                c.tapped = True
+        risk = agent._evaluate_hidden_interaction(game, game.players[1])
+        assert risk == 0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

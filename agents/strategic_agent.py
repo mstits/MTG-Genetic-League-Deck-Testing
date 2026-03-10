@@ -166,7 +166,7 @@ class StrategicAgent(HeuristicAgent):
         return (board_score + hand_score + evasion * 1.5 + pw_count * 3.0 + 
                 noncreature_perms * 0.5 + (opp.life * 0.1) - (cmd_dmg * 0.5))
 
-    def _get_primary_opponent(self, game, player):
+    def _get_primary_opponent(self, game, player) -> 'Player':
         """Returns the highest-threat opponent using the Threat-Weight Matrix."""
         opponents = [p for p in game.players if p != player]
         if not opponents:

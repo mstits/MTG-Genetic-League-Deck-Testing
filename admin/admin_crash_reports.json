@@ -1,6 +1,6 @@
 [
   {
-    "timestamp": "2026-03-09T20:47:32.163498",
+    "timestamp": "2026-03-09T20:50:26.940112",
     "card_id": "SBA_704.5a",
     "crash_type": "SBA Audit Failure",
     "message": "SBA Invariant Violation (704.5a): Player P1 has -5 life but game_over is False.",
