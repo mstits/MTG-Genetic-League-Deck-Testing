@@ -125,7 +125,7 @@ engine/              Core MTG rules engine
 agents/              AI decision engines
 ├── heuristic_agent.py   Priority-based agent with threat assessment
 ├── strategic_agent.py   MCTS + tempo/card-advantage hybrid
-├── mulligan_ai.py       Transformer-based opening hand evaluator
+├── mulligan_ai.py       Transformer-based hand evaluator (NumPy-independent)
 └── sideboard_agent.py   Matchup-aware sideboard construction
 
 optimizer/           Evolutionary deck construction
@@ -137,7 +137,7 @@ league/              Competitive league management
 └── historical_gauntlet.py  "Time Machine" era testing
 
 simulation/          Game execution
-├── runner.py        Runs single games with agent decisions
+├── runner.py        Runs single games with agent decisions (memory-leak protected)
 ├── parallel.py      Redis-distributed match execution
 └── flex_tester.py   Flex slot optimization (hypergeometric)
 
