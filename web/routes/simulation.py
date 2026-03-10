@@ -335,19 +335,9 @@ async def mana_calc(request: Request):
     if not deck_dict:
         return JSONResponse({"error": "Empty or invalid decklist."}, status_code=400)
 
-    # Load card pool for color identity lookup
-    data_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'legal_cards.json')
-    if not os.path.exists(data_path):
-        data_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'processed_cards.json')
-
-    card_pool = {}
-    if os.path.exists(data_path):
-        with open(data_path, 'r') as f:
-            for c in json.load(f):
-                card_pool[c['name']] = c
-
-    from engine.card_builder import inject_basic_lands
-    inject_basic_lands(card_pool)
+    # Use module-level cached card pool (loaded once, not from disk per-request)
+    from web.app import _get_card_pool
+    card_pool = _get_card_pool()
 
     from utils.hypergeometric import evaluate_deck_mana
     try:
