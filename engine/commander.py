@@ -19,6 +19,7 @@ from engine.player import Player
 from engine.card import Card, StackItem
 from engine.zone import Zone
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,6 @@ class CommanderGame(Game):
             
             if can_cast:
                 # Calculate cost with commander tax
-                import re
                 tax = player.commander_tax
                 base_cost = cmd.cost
                 if tax > 0:

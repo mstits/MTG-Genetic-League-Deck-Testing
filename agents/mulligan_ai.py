@@ -9,6 +9,8 @@ the agent will decide to mulligan.
 """
 
 import math
+import random
+import re
 from typing import List
 from engine.card import Card
 from engine.deck import Deck
@@ -303,7 +305,6 @@ class MulliganAI:
         elif lands in (4, 5): score += 0.5
         
         # Color-mana matching
-        import re as _re
         land_colors = set()
         for c in hand:
             if c.is_land:
@@ -312,7 +313,7 @@ class MulliganAI:
         needed_colors = set()
         for c in spells:
             if c.cost:
-                for color in _re.findall(r'\{([WUBRG])\}', c.cost):
+                for color in re.findall(r'\{([WUBRG])\}', c.cost):
                     needed_colors.add(color)
         missing = needed_colors - land_colors
         if missing:
@@ -435,7 +436,6 @@ class MulliganAI:
         Returns:
             dict with training stats (losses per epoch, final MSE)
         """
-        import random
         
         # Generate training data
         training_data = []
