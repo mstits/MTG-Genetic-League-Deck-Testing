@@ -248,7 +248,7 @@ class Game:
                         
         return new_game
 
-    def apply_replacement(self, effect_type: str, **kwargs):
+    def apply_replacement(self, effect_type: str, **kwargs) -> bool | int | None:
         """Apply replacement effects (Rule 614).
         
         Args:
@@ -314,7 +314,7 @@ class Game:
         
         return None
 
-    def register_replacement_effect(self, source, effect_type: str, check_fn, apply_fn):
+    def register_replacement_effect(self, source, effect_type: str, check_fn, apply_fn) -> None:
         """Register a replacement effect from a permanent (Rule 614.1)."""
         self.replacement_effects.append({
             'type': effect_type,
@@ -323,7 +323,7 @@ class Game:
             'apply': apply_fn
         })
 
-    def _register_rest_in_peace_replacement(self):
+    def _register_rest_in_peace_replacement(self) -> None:
         """Register RIP as a replacement effect: cards that would go to graveyard go to exile instead.
         This replaces the old monkey-patch approach which created circular references."""
         def rip_check(event, game):
@@ -361,7 +361,7 @@ class Game:
     def defending_player(self) -> Player:
         return self.opponent
 
-    def log_event(self, message: str):
+    def log_event(self, message: str) -> None:
         self.log.append(message)
 
     def start_game(self) -> None:
@@ -489,7 +489,7 @@ class Game:
             self.mulligan_counts[player.name] = mulligan_count
             self.log_event(f"T{self.turn_count}: {player.name} kept a hand of {7 - mulligan_count}")
     
-    def _log_turn_state(self):
+    def _log_turn_state(self) -> None:
         """Log board state at start of turn for strategic analysis."""
         p0, p1 = self.players[0], self.players[1]
         p0_creatures = [c for c in self.battlefield.cards if c.controller == p0 and c.is_creature]
@@ -515,7 +515,7 @@ class Game:
         self.log_event(f"    [HAND {p0.name}: {p0_hand}]")
         self.log_event(f"    [HAND {p1.name}: {p1_hand}]")
 
-    def _reset_all_mana_pools(self):
+    def _reset_all_mana_pools(self) -> None:
         """Empty all players' mana pools (Rule 106.4)."""
         for player in self.players:
             player.reset_mana_pool()
@@ -1358,7 +1358,7 @@ class Game:
         state.append(f"b:{','.join(str(c.id) for c in self.battlefield.cards)}")
         return hash('|'.join(state))
 
-    def apply_action(self, action: dict):
+    def apply_action(self, action: dict) -> None:
         """Execute a player action and update game state.
 
         Handles all action types: pass (with priority/stack resolution),

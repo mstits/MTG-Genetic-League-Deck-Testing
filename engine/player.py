@@ -71,7 +71,7 @@ class Player:
             
         self.library_empty_draw = False  # Track empty library draw for SBA loss
     
-    def reset_for_new_game(self, game=None):
+    def reset_for_new_game(self, game=None) -> None:
         """Reset player state for a new game in a Bo3 match."""
         self.life = 20
         self.hand = Zone("Hand")
@@ -88,11 +88,11 @@ class Player:
             
         self.library_empty_draw = False
             
-    def shuffle_library(self):
+    def shuffle_library(self) -> None:
         """Randomize the order of the remaining cards in the library."""
         self.library.shuffle()
         
-    def draw_card(self, amount: int = 1, game=None):
+    def draw_card(self, amount: int = 1, game=None) -> None:
         """Draw cards. If game is provided, triggers CR 614 replacement events."""
         for _ in range(amount):
             if game and game.apply_replacement('draw', player=self):
@@ -104,7 +104,7 @@ class Player:
             else:
                 self.library_empty_draw = True  # Caught by SBAs (Rule 704.5b)
 
-    def play_land(self, card: Card, game):
+    def play_land(self, card: Card, game) -> bool:
         """Move a land card from hand to the battlefield and decrement available land plays."""
         if not card.is_land:
             return False
@@ -369,7 +369,7 @@ class Player:
                 
         return len(req) == 0
 
-    def pay_cost(self, cost: str, game):
+    def pay_cost(self, cost: str, game) -> None:
         """Legacy auto-tap cost payment (to be deprecated by CR 601.2 sequence).
         Pays cost by draining mana pool first, then tapping lands for remainder.
         """
@@ -580,7 +580,7 @@ class Player:
         total_remaining = sum(v for v in remaining_pool.values() if isinstance(v, int))
         return total_remaining >= generic_needed
     
-    def scry(self, n: int, role: str = 'midrange'):
+    def scry(self, n: int, role: str = 'midrange') -> None:
         """Scry N: look at top N cards, keep good ones on top, bottom bad ones.
         Role-aware: aggro bottoms expensive cards, control keeps removal on top."""
         if n <= 0 or len(self.library) == 0:
@@ -634,7 +634,7 @@ class Player:
         for c in bottom:
             self.library.cards.append(c)
 
-    def reset_mana_pool(self):
+    def reset_mana_pool(self) -> None:
         """Empty mana pool (Rule 106.4 — mana empties between steps/phases)."""
         for c in MANA_COLORS:
             self.mana_pool[c] = 0
