@@ -7,6 +7,7 @@ power/toughness parsing.
 """
 from engine.card import Card
 from typing import Optional
+import re
 
 # Guaranteed basic land definitions — fallback if card pool is missing them
 BASIC_LANDS = {
@@ -63,7 +64,6 @@ def dict_to_card(data: dict) -> Card:
         # Only parse if we didn't get basics (or even if we did? No, basics are sufficient usually)
         # But some lands have basic types AND ability (e.g. "Have basic land types" duals are handled above)
         # Non-basic lands need this.
-        import re
         text = data.get('oracle_text', '')
         
         # "Add one mana of any color" -> All colors

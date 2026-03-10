@@ -22,6 +22,7 @@ from engine.game import Game
 from engine.card import Card
 from engine.zone import Zone
 import copy
+import re
 import logging
 
 logger = logging.getLogger(__name__)
@@ -138,7 +139,6 @@ class Bo3Match:
                     turns += 1
             
             # Extract cards seen from game log for sideboard intelligence
-            import re
             p1_cards_seen = set()
             p2_cards_seen = set()
             for log_line in game.log:

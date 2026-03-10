@@ -600,7 +600,6 @@ class Card:
         """Parse Annihilator N (Rule 702.85): defender sacrifices N permanents on attack."""
         if not getattr(self, 'has_annihilator', False):
             return
-        import re
         ann_match = re.search(r'annihilator (\d+)', text)
         if ann_match:
             n = int(ann_match.group(1))
@@ -632,7 +631,6 @@ class Card:
         """Parse Dredge N (Rule 702.51): when you draw, you may mill N and return this instead."""
         if not getattr(self, 'has_dredge', False):
             return
-        import re
         dredge_match = re.search(r'dredge (\d+)', text)
         if dredge_match:
             self.dredge_count = int(dredge_match.group(1))
