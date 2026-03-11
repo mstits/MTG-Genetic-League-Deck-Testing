@@ -1,4 +1,4 @@
-version: '3.8'
+
 
 # ─── MTG Genetic League — Docker Compose ────────────────────────────────────
 # Copy .env.example to .env before running: cp .env.example .env

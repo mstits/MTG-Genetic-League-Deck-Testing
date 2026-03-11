@@ -1080,8 +1080,7 @@ async def view_matches(request: Request):
         ''')
         matches = [dict(row) for row in cursor.fetchall()]
         
-    return _get_templates().TemplateResponse("matches.html", {
-        "request": request,
+    return _get_templates().TemplateResponse(request, "matches.html", {
         "matches": matches
     })
 @router.get("/match/{match_id}/replay", response_class=HTMLResponse)
@@ -1129,8 +1128,7 @@ async def view_replay(request: Request, match_id: int):
         except Exception as e:
             pass
 
-    return _get_templates().TemplateResponse("replay.html", {
-        "request": request,
+    return _get_templates().TemplateResponse(request, "replay.html", {
         "match_data": data,
         "d1_bracket": d1_bracket,
         "d2_bracket": d2_bracket

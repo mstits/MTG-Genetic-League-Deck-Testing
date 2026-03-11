@@ -280,8 +280,8 @@ async def view_deck(request: Request, deck_id: int):
         except Exception as e:
             logger.debug("Elo history computation failed: %s", e)
 
-    return templates.TemplateResponse("deck.html", {
-        "request": request, "deck": deck, "matches": matches,
+    return templates.TemplateResponse(request, "deck.html", {
+        "deck": deck, "matches": matches,
         "card_info": card_info, "matchup_spread": matchup_spread,
         "elo_history": elo_history
     })
@@ -554,8 +554,7 @@ async def browse_decks(request: Request, page: int = 1, active: int = None,
         cursor.execute(query, params)
         decks = [dict(r) for r in cursor.fetchall()]
 
-    return templates.TemplateResponse("decks.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "decks.html", {
         "decks": decks,
         "count": total_count,
         "page": page,
@@ -594,8 +593,7 @@ async def view_season(request: Request, season_id: int):
         winner_row = cursor.fetchone()
         winner = dict(winner_row) if winner_row else None
 
-    return templates.TemplateResponse("season.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "season.html", {
         "season": {
             "id": season_id,
             "match_count": match_count,
@@ -704,8 +702,7 @@ async def view_lineage(request: Request, deck_id: int):
         cy_edges = [{'source': str(src), 'target': str(dst)} for src, dst in edges]
         no_lineage = len(nodes) <= 1 and len(edges) == 0
 
-    return templates.TemplateResponse("lineage.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "lineage.html", {
         "deck": current_deck,
         "cy_nodes": json.dumps(cy_nodes),
         "cy_edges": json.dumps(cy_edges),
@@ -810,6 +807,5 @@ async def view_match(request: Request, match_id: int):
     if not game_log:
         game_log = json.loads(match.get('game_log', '[]') or '[]')
 
-    return templates.TemplateResponse("match.html", {
-        "request": request, "match": match, "game_log": game_log
+    return templates.TemplateResponse(request, "match.html", { "match": match, "game_log": game_log
     })
