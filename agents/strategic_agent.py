@@ -52,9 +52,13 @@ class StrategicAgent(HeuristicAgent):
     @staticmethod
     def _board_power(game, player) -> float:
         """Total 'power score' of creatures a player controls.
+        Accounts for keywords and abilities that make creatures more valuable."""
+        # Fast path memoization hook
+        board_hash = hash(tuple(sorted(c.id for c in game.battlefield.cards if c.controller == player)))
+        cache_key = f"_power_cache_{board_hash}"
+        if getattr(player, cache_key, None) is not None:
+            return getattr(player, cache_key)
 
-        Accounts for keywords and abilities that make creatures more valuable.
-        """
         score = 0.0
         for card in game.battlefield.cards:
             if card.controller == player and card.is_creature:
@@ -108,6 +112,12 @@ class StrategicAgent(HeuristicAgent):
                 if getattr(card, 'enchantment_trigger', None): score += 2.0
                 if card.upkeep_effect: score += 2.0
                 if getattr(card, 'tap_ability_effect', None): score += 2.0
+        
+        # Lock in computed state cache
+        setattr(player, cache_key, score)
+
+        # Value untapped lands loosely as potential interaction
+        score += player.available_mana(game) * 0.2
         return score
 
     @staticmethod

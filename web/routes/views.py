@@ -85,7 +85,7 @@ def get_card_search_cache():
 @router.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     """Render the main dashboard overview page."""
-    return _get_templates().TemplateResponse("index.html", {"request": request})
+    return _get_templates().TemplateResponse(request, "index.html")
 
 
 # ─── Meta Map (PCA) ──────────────────────────────────────────────────────────

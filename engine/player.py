@@ -217,6 +217,9 @@ class Player:
     def _land_produces(card: Card) -> List[str]:
         """Determine what color mana a land produces (Rule 305.6).
         Returns a list of all potential colors (e.g. ['W', 'U', 'C'])."""
+        if hasattr(card, '_cached_produces'):
+            return card._cached_produces
+            
         colors = []
         # Check basic land types first
         for land_name, color in BASIC_LAND_MANA.items():
@@ -233,8 +236,10 @@ class Player:
         # Actually color_identity might be broader than production (e.g. fetchlands).
         # So fallback to 'C' only if empty
         if not colors:
-            return ['C']
+            card._cached_produces = ['C']
+            return card._cached_produces
         
+        card._cached_produces = colors
         return colors
 
     def _get_available_mana(self, game) -> Dict[str, int]:

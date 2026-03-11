@@ -901,6 +901,18 @@ class Game:
         if self.game_over:
             return [{'type': 'pass'}]
 
+        # Check action transposition table
+        state_hash = getattr(self, '_current_action_hash', None)
+        if not state_hash:
+            state_hash = self._hash_exec_state()
+            self._current_action_hash = state_hash
+            
+        if not hasattr(self, '_legal_actions_cache'):
+            self._legal_actions_cache = {}
+            
+        if state_hash in self._legal_actions_cache:
+            return list(self._legal_actions_cache[state_hash])
+
         player = self.priority_player
         actions = [{'type': 'pass'}]
 
@@ -1390,6 +1402,9 @@ class Game:
                 self.log_event(f"RESULT: Draw (Broken-Loop, tied board). Turn {self.turn_count}")
             return
 
+        # Break any cached action states locally on applying an action
+        self._current_action_hash = None
+
         action = self._resolve_action_references(action)
         self._action_count += 1
         player = self.priority_player
@@ -1417,6 +1432,7 @@ class Game:
                 if self.current_phase == "Declare Attackers":
                     self.combat_blockers = {}
                 self._state_hashes.clear()  # Reset loop detector on phase change
+                self._current_action_hash = None
                 self.advance_phase()
         
         elif action['type'] == 'play_land':

@@ -57,14 +57,14 @@ async def health_check():
 async def admin_portal(request: Request):
     """Main Admin Portal UI — engine config, health dashboards, and butterfly maps."""
     from web.cache import templates
-    return templates.TemplateResponse("admin.html", {"request": request})
+    return templates.TemplateResponse(request, "admin.html")
 
 
 @router.get("/admin/butterfly", response_class=HTMLResponse)
 async def butterfly_dashboard(request: Request):
     """Admin UI for viewing Misplay Hunter butterfly maps (what-if analysis)."""
     from web.cache import templates
-    return templates.TemplateResponse("butterfly.html", {"request": request})
+    return templates.TemplateResponse(request, "butterfly.html")
 
 
 # ─── Admin API ────────────────────────────────────────────────────────────────
