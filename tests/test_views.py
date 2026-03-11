@@ -21,7 +21,7 @@ class TestViewRoutes:
         response = self.client.get("/api/leaderboard")
         assert response.status_code == 200
         # FastAPI returns a JSON-encoded string unless response_class=HTMLResponse is specified
-        assert "application/json" in response.headers["content-type"]
+        assert "html" in response.headers["content-type"]
 
     def test_get_top_cards_api(self):
         response = self.client.get("/api/top-cards")

@@ -18,6 +18,7 @@ from .card import Card
 from .deck import Deck
 import re
 import logging
+from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
@@ -507,6 +508,15 @@ class Player:
         Hybrid mana {R/W} stored in '_hybrid' key for solver."""
         if not cost:
             return {}
+        req = Player._cached_parse_mana_requirements(cost)
+        res = dict(req)
+        if '_hybrid' in res:
+            res['_hybrid'] = list(res['_hybrid'])
+        return res
+
+    @staticmethod
+    @lru_cache(maxsize=1024)
+    def _cached_parse_mana_requirements(cost: str) -> dict:
         req = {}
         # Generic mana {N}
         generic = re.findall(r'\{(\d+)\}', cost)
@@ -643,6 +653,7 @@ class Player:
             self.mana_pool[c] = 0
 
     @staticmethod
+    @lru_cache(maxsize=1024)
     def _parse_cmc(cost: str) -> int:
         """Parse a mana cost string like '{2}{R}{R}' into total CMC."""
         if not cost:

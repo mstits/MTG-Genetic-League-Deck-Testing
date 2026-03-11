@@ -63,16 +63,16 @@ class MisplayHunter:
         # So we just check if the new path's winrate is > 10%
         if alternate_path_winrate > 0.10:
             logger.info("🦋 [Misplay Hunter] STRATEGIC BLINDSPOT FOUND! Turn %d", pivot_snapshot['turn'])
-            logger.info("    Original Action: %s", original_action.description if original_action else 'Pass')
-            logger.info("    Better Action:   %s (Win Rate: %.1f%%)", new_action.description if new_action else 'Pass', alternate_path_winrate*100)
+            logger.info("    Original Action: %s", str(original_action) if original_action else 'Pass')
+            logger.info("    Better Action:   %s (Win Rate: %.1f%%)", str(new_action) if new_action else 'Pass', alternate_path_winrate*100)
             
             self._generate_butterfly_report(
                 high_elo_idx=high_elo_idx,
                 deck1_id=deck1_id,
                 deck2_id=deck2_id,
                 pivot_turn=pivot_snapshot['turn'],
-                actual_action=original_action.description if original_action else "Pass",
-                golden_action=new_action.description if new_action else "Pass",
+                actual_action=str(original_action) if original_action else "Pass",
+                golden_action=str(new_action) if new_action else "Pass",
                 winrate_diff=alternate_path_winrate,
                 vibe_score=alternate_path_winrate * 100 # High sensitivity = high vibe score
             )

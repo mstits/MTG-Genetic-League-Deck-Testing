@@ -1435,6 +1435,8 @@ class Card:
     
     def _calc_power_pre_switch(self) -> int:
         p = self.base_power
+        if not self._temp_modifiers and not self.attachments and not self.counters:
+            return p
         # 7b: Setting P/T
         for m in self._temp_modifiers:
             if 'set_power' in m: p = m['set_power']
@@ -1448,6 +1450,8 @@ class Card:
 
     def _calc_toughness_pre_switch(self) -> int:
         t = self.base_toughness
+        if not self._temp_modifiers and not self.attachments and not self.counters:
+            return t
         # 7b: Setting P/T
         for m in self._temp_modifiers:
             if 'set_toughness' in m: t = m['set_toughness']
